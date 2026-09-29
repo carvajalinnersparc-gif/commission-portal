@@ -1,0 +1,3430 @@
+<!--
+  ════════════════════════════════════════════════════════════════
+  EmailCampaigner.html — the complete Emails / Broadcast feature.
+
+  This file is a FEATURE MODULE, not an application shell. It is
+  inlined into Portal.html's existing <div class="p-view"
+  id="view-emails"> by ec_include_('EmailCampaigner') and therefore
+  contains no authentication, navigation, session or theming code —
+  it inherits all of that, plus every CSS variable and shared
+  component class, from the host portal.
+
+  Everything here is namespaced .email-* / .broadcast-* / em* so it
+  can never collide with the portal's own CSS or JavaScript.
+  ════════════════════════════════════════════════════════════════
+-->
+
+<style>
+/* ── Screens ── */
+.email-screen{display:none;}
+.email-screen.active{display:block;animation:fadein .2s ease;}
+
+/* ── History toolbar (reuses .filters conventions) ── */
+.email-history-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:18px;}
+.email-history-toolbar .email-search{flex:1 1 240px;min-width:180px;margin-bottom:0;}
+.email-history-toolbar .email-status-filter{margin-bottom:0;min-width:160px;}
+.email-history-toolbar .btn{width:auto;min-height:48px;padding:9px 18px;font-size:13px;}
+
+/* ── Gmail-inspired history rows ── */
+.email-row-subject{font-weight:800;color:var(--gray-800);}
+.email-row-snippet{display:block;font-weight:500;color:var(--gray-500);font-size:11.5px;margin-top:3px;line-height:1.45;}
+.email-row-sender{color:var(--gray-600);font-weight:600;}
+.email-row-audience{color:var(--gray-600);}
+.broadcast-status{display:inline-block;padding:3px 10px;border-radius:20px;font-size:10.5px;font-weight:700;}
+.broadcast-status.sent{background:var(--green-pale);color:var(--green-dark);}
+.broadcast-status.partial{background:var(--orange-pale);color:var(--orange-dark);}
+.broadcast-status.failed{background:var(--red-pale);color:var(--red);}
+.broadcast-status.draft{background:var(--gray-100);color:var(--gray-600);}
+.broadcast-status.sending{background:var(--blue-pale);color:var(--blue);}
+.broadcast-status.scheduled{background:var(--blue-pale);color:var(--blue);}
+
+/* ── Composer ── */
+.email-composer-actions{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:6px;}
+.email-composer-actions .btn{width:auto;min-width:150px;padding:11px 18px;}
+.email-recipient-list{
+  max-height:340px;overflow-y:auto;border:1.5px solid var(--gray-200);border-radius:10px;
+  background:var(--white);padding:10px;
+}
+.email-recipient-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;
+}
+.email-recipient-list label.email-recipient-row{
+  display:flex !important;
+  flex-direction:row;
+  align-items:center;
+  gap:12px;
+  padding:12px 14px;border-radius:9px;border:1.5px solid var(--gray-100);
+  cursor:pointer;transition:var(--transition);background:var(--white);
+  font-size:inherit;font-weight:normal;color:inherit;margin-bottom:0;letter-spacing:normal;
+}
+.email-recipient-list label.email-recipient-row:hover{background:var(--gray-50);border-color:var(--gray-200);}
+.email-recipient-list label.email-recipient-row.is-checked{background:var(--blue-pale);border-color:var(--blue-light);}
+.email-recipient-list label.email-recipient-row input[type="checkbox"]{
+  flex:0 0 auto;
+  width:19px;height:19px;margin:0;accent-color:var(--blue);cursor:pointer;
+  border-radius:5px;
+}
+.email-recipient-list label.email-recipient-row .email-recipient-info{
+  flex:1 1 auto;
+  display:flex !important;
+  flex-direction:column;
+  min-width:0;gap:1px;
+}
+.email-recipient-name{
+  font-size:12.5px;font-weight:700;color:var(--gray-800);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.email-recipient-email{
+  font-size:11px;font-weight:500;color:var(--gray-500);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.email-recipient-row:hover{background:var(--gray-50);border-color:var(--gray-200);}
+.email-recipient-row.is-checked{background:var(--blue-pale);border-color:var(--blue-light);}
+.email-recipient-row input[type="checkbox"]{
+  width:19px;height:19px;min-width:19px;margin:0;accent-color:var(--blue);cursor:pointer;
+  border-radius:5px;
+}
+.email-recipient-row .email-recipient-info{
+  display:flex;flex-direction:column;min-width:0;gap:1px;
+}
+.email-recipient-name{
+  font-size:12.5px;font-weight:700;color:var(--gray-800);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.email-recipient-email{
+  font-size:11px;font-weight:500;color:var(--gray-500);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+@media(max-width:560px){
+  .email-recipient-grid{grid-template-columns:1fr;}
+}
+.email-recipient-search{
+  width:100%;min-height:38px;padding:8px 12px 8px 34px;margin-bottom:8px;
+  border:1.5px solid var(--gray-200);border-radius:9px;font-size:13px;
+  background:var(--white) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 512 512' fill='%236b7280'><path d='M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352a144 144 0 1 0 0-288 144 144 0 1 0 0 288z'/></svg>") no-repeat 10px center;
+  outline:none;color:var(--black);transition:var(--transition);
+}
+.email-recipient-search:focus{border-color:var(--blue-light);}
+.email-recipient-no-match{
+  padding:14px;text-align:center;font-size:12.5px;
+  color:var(--gray-500);font-style:italic;
+}
+.email-recipient-preview{
+  display:inline-flex;align-items:center;gap:8px;
+  font-size:12.5px;font-weight:700;color:var(--gray-700);
+  padding:10px 14px;background:var(--gray-50);
+  border:1.5px solid var(--gray-200);border-radius:9px;
+}
+.email-recipient-preview i{color:var(--blue);}
+
+/* ── Editor toolbar ── */
+.email-toolbar{
+  display:flex;flex-wrap:wrap;align-items:center;gap:4px;
+  padding:8px;border:1.5px solid var(--gray-200);border-bottom:none;
+  border-radius:9px 9px 0 0;background:var(--gray-50);
+}
+.email-tb-group{display:flex;flex-wrap:wrap;align-items:center;gap:2px;}
+.email-tb-sep{width:1px;align-self:stretch;min-height:26px;background:var(--gray-200);margin:0 4px;}
+.email-tb-btn{
+  background:none;border:1px solid transparent;color:var(--gray-600);
+  min-width:30px;height:30px;padding:0 7px;border-radius:6px;font-size:13px;
+  display:inline-flex;align-items:center;justify-content:center;transition:var(--transition);
+}
+.email-tb-btn:hover{background:var(--gray-100);color:var(--blue);}
+.email-tb-btn.is-active{background:var(--blue-pale);color:var(--blue);border-color:var(--blue-pale);}
+.email-tb-btn.text{font-size:11.5px;font-weight:800;}
+.email-tb-select{
+  box-sizing:content-box;
+  height:22px;border:1.5px solid var(--gray-200);border-radius:6px;background-color:var(--white);
+  color:var(--gray-800);font-size:11.5px;font-weight:600;font-family:inherit;padding:4px 6px;
+  flex:0 0 auto !important;
+}
+#emFontFamily{width:90px !important;}
+#emFontSize{width:56px !important;}
+#emBlockStyle{width:110px !important;}
+#emLineSpacing{width:90px !important;}
+.email-tb-color{
+  width:34px;height:30px;padding:2px;border:1.5px solid var(--gray-200);
+  border-radius:6px;background:var(--white);cursor:pointer;
+}
+.email-tb-colorwrap{display:inline-flex;flex-direction:column;align-items:center;}
+.email-tb-colorwrap span{font-size:8.5px;font-weight:700;color:var(--gray-500);letter-spacing:.2px;}
+
+/* ── Editor surface ── */
+.email-editor{
+  min-height:280px;max-height:60vh;overflow-y:auto;overflow-x:auto;
+  padding:16px 18px;border:1.5px solid var(--gray-200);border-radius:0 0 9px 9px;
+  background:var(--white);color:var(--black);font-size:15px;line-height:1.7;outline:none;
+}
+.email-editor:focus{border-color:var(--blue-light);}
+.email-editor p{margin:0 0 12px;}
+.email-editor div{font-size:16px;line-height:1.75;}
+.email-editor h1{font-size:26px;margin:0 0 10px;}
+.email-editor h2{font-size:22px;margin:0 0 9px;}
+.email-editor h3{font-size:18px;margin:0 0 8px;}
+.email-editor h4{font-size:16px;margin:0 0 8px;}
+.email-editor ul,.email-editor ol{margin:0 0 12px;padding-left:24px;}
+.email-editor li{margin:0 0 6px;line-height:1.7;}
+.email-editor blockquote{margin:0 0 12px;padding:8px 14px;border-left:4px solid var(--blue);background:var(--gray-50);font-style:italic;color:var(--gray-600);}
+.email-editor table{border-collapse:collapse;width:100%;margin:0 0 12px;}
+.email-editor td,.email-editor th{border:1px solid var(--gray-200);padding:8px;font-size:14.5px;vertical-align:top;}
+.email-editor th{background:var(--gray-50);font-weight:700;text-align:left;}
+.email-editor a{color:var(--blue);text-decoration:underline;}
+.email-editor hr{border:0;border-top:1px solid var(--gray-200);margin:16px 0;}
+.email-editor pre{margin:0 0 12px;padding:12px;background:var(--gray-50);border-radius:6px;font-family:'Courier New',Consolas,Monaco,monospace;font-size:14px;white-space:pre-wrap;}
+.email-editor code{font-family:'Courier New',Consolas,Monaco,monospace;font-size:14px;background:var(--gray-50);padding:1px 4px;border-radius:3px;}
+.email-editor pre code{background:none;padding:0;}
+.email-counters{margin-top:8px;font-size:12px;color:var(--gray-600);font-weight:600;}
+
+/* ── Inline images ── */
+.email-editor-wrap{position:relative;}
+.email-editor img{max-width:100%;height:auto;cursor:pointer;}
+.email-img-box{position:absolute;display:none;border:2px solid var(--blue);border-radius:3px;box-sizing:border-box;pointer-events:none;z-index:4;}
+.email-img-handle{position:absolute;right:-8px;bottom:-8px;width:14px;height:14px;background:var(--blue);border:2px solid #fff;border-radius:50%;cursor:nwse-resize;pointer-events:auto;touch-action:none;}
+.email-img-bar{position:absolute;z-index:6;display:none;align-items:center;gap:2px;flex-wrap:wrap;max-width:calc(100% - 8px);padding:5px;background:var(--white);border:1.5px solid var(--gray-200);border-radius:9px;box-shadow:var(--shadow-lg);}
+.email-img-bar button{background:none;border:1px solid transparent;color:var(--gray-600);min-width:30px;height:30px;padding:0 7px;border-radius:6px;font-size:12px;font-weight:800;display:inline-flex;align-items:center;justify-content:center;}
+.email-img-bar button:hover{background:var(--gray-100);color:var(--blue);}
+.email-img-bar button.danger:hover{background:var(--red-pale);color:var(--red);}
+.email-img-sep{width:1px;height:20px;background:var(--gray-200);margin:0 4px;}
+
+/* ── HTML source modal ── */
+.email-html-source-textarea{
+  width:100%;min-height:320px;max-height:55vh;resize:vertical;box-sizing:border-box;
+  padding:14px 16px;border:1.5px solid var(--gray-200);border-radius:9px;
+  background:var(--gray-50);color:var(--black);
+  font-family:'Courier New',Consolas,Monaco,monospace;font-size:13px;line-height:1.6;
+  tab-size:2;white-space:pre;overflow:auto;
+}
+.email-html-source-textarea:focus{outline:none;border-color:var(--blue-light);background:var(--white);}
+
+/* ── Popovers (table grid, special characters, find & replace) ── */
+.email-popover{
+  position:absolute;z-index:80;display:none;padding:12px;
+  background:var(--white);border:1.5px solid var(--gray-200);border-radius:10px;box-shadow:var(--shadow-lg);
+}
+.email-popover.open{display:block;}
+.email-popover-title{font-size:11px;font-weight:800;color:var(--gray-600);text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;}
+.email-grid{display:grid;grid-template-columns:repeat(8,18px);gap:3px;}
+.email-grid button{width:18px;height:18px;padding:0;border:1px solid var(--gray-200);border-radius:3px;background:var(--white);}
+.email-grid button.on{background:var(--blue-pale);border-color:var(--blue);}
+.email-grid-label{margin-top:8px;font-size:11.5px;font-weight:700;color:var(--gray-600);text-align:center;}
+.email-chars{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;max-width:260px;max-height:200px;overflow-y:auto;}
+.email-chars button{min-width:28px;height:28px;padding:0;border:1px solid transparent;border-radius:5px;background:none;font-size:15px;color:var(--gray-800);}
+.email-chars button:hover{background:var(--gray-100);}
+.email-find-row{display:flex;gap:6px;align-items:center;margin-bottom:6px;}
+.email-find-row input{min-height:34px;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:7px;font-size:13px;background:var(--white);color:var(--black);width:170px;}
+.email-find-actions{display:flex;gap:6px;flex-wrap:wrap;}
+.email-find-actions .btn-reset{min-height:32px;padding:6px 10px;font-size:11.5px;}
+.email-find-status{margin-top:6px;font-size:11.5px;color:var(--gray-600);font-weight:600;}
+
+/* ── Modals (reuse .modal-overlay / .modal-card) ── */
+.email-confirm-list .detail-row:last-child{border-bottom:none;}
+.email-modal-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;}
+.email-modal-actions .btn{width:auto;flex:1;min-width:140px;}
+.email-result{border-radius:var(--radius);padding:14px 16px;margin-bottom:14px;font-size:13px;font-weight:700;}
+.email-result.ok{background:var(--green-pale);color:var(--green-dark);}
+.email-result.partial{background:var(--orange-pale);color:var(--orange-dark);}
+.email-result.err{background:var(--red-pale);color:var(--red);}
+.email-detail-frame{width:100%;height:36vh;border:1px solid var(--gray-100);border-radius:8px;background:#fff;}
+#emDetailOverlay{padding-top:64px;}
+#emDetailOverlay .modal-card{max-height:calc(100vh - 100px);}
+.em-time-value{color:var(--green-dark);font-weight:800;}
+
+@media(max-width:820px){
+  .email-history-toolbar{flex-direction:column;align-items:stretch;gap:12px;}
+  .email-history-toolbar .email-search,
+  .email-history-toolbar .email-status-filter{width:100%;min-width:0;}
+  .email-history-toolbar .btn,
+  .email-history-toolbar .btn-reset{width:100%;justify-content:center;min-height:48px;}
+  .email-toolbar{gap:6px;padding:10px;}
+  .email-tb-btn{min-width:40px;height:40px;font-size:15px;}
+  .email-tb-select{height:40px;font-size:13px;max-width:100%;}
+  .email-tb-color{width:44px;height:40px;}
+  .email-tb-sep{display:none;}
+  .email-editor{min-height:220px;font-size:16px;}
+  .email-composer-actions .btn{width:100%;}
+  .email-popover{left:12px !important;right:12px;max-width:calc(100vw - 24px);}
+  .email-find-row{flex-wrap:wrap;}
+  .email-find-row input{width:100%;}
+}
+</style>
+
+<div class="p-h1">Broadcast Emails</div>
+<div class="p-sub">Compose and send one-to-many announcements to an approved audience.</div>
+
+<!-- ══════════════ BROADCAST HISTORY ══════════════ -->
+<div class="email-screen active" id="emHistoryScreen">
+  <div class="card">
+    <div class="card-title">Open Tracking</div>
+    <div class="stat-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px;margin-bottom:6px;">
+      <div class="stat-card"><div class="sc-label"><i class="fa-solid fa-paper-plane"></i> Total Messages</div><div class="sc-value" id="emStatTotal">—</div></div>
+      <div class="stat-card"><div class="sc-label"><i class="fa-solid fa-check"></i> Sent</div><div class="sc-value" id="emStatSent">—</div></div>
+      <div class="stat-card green"><div class="sc-label"><i class="fa-solid fa-envelope-open"></i> Opened</div><div class="sc-value" id="emStatOpened">—</div></div>
+      <div class="stat-card orange"><div class="sc-label"><i class="fa-solid fa-chart-line"></i> Open Rate</div><div class="sc-value" id="emStatRate">—</div></div>
+    </div>
+    <div class="p-sub" style="margin-top:2px;">
+      "Opened" means a request for the tracking pixel was detected — it can undercount (images blocked, privacy features,
+      no-image email clients) so it is not proof the recipient did or didn't read the message. "Sent" with no open yet
+      does not mean it wasn't read.
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Broadcast History</div>
+
+    <div class="filters email-history-toolbar">
+      <button class="btn btn-primary" type="button" onclick="emNewBroadcast()">
+        <i class="fa-solid fa-pen-to-square"></i> New Broadcast
+      </button>
+      <div class="field email-search">
+        <label for="emSearch">Search broadcasts</label>
+        <input type="search" id="emSearch" placeholder="Subject, sender, audience, status…" oninput="emFilterHistory()"/>
+      </div>
+      <div class="field email-status-filter">
+        <label for="emStatusFilter">Status</label>
+        <select id="emStatusFilter" onchange="emFilterHistory()">
+            <option value="">All</option>
+            <option value="Draft">Draft</option>
+            <option value="Scheduled">Scheduled</option>
+            <option value="Sending">Sending</option>
+            <option value="Sent">Sent</option>
+            <option value="Partially Sent">Partially Sent</option>
+            <option value="Failed">Failed</option>
+        </select>
+      </div>
+      <div class="field email-status-filter">
+        <label for="emSystemFilter">Filter</label>
+        <select id="emSystemFilter" onchange="emFilterHistory()">
+          <option value="">All</option>
+          <option value="CRM">CRM</option>
+          <option value="CMS">CMS</option>
+          <option value="AGENT PORTAL">AGENT PORTAL</option>
+          <option value="E-LEARNING PORTAL">E-LEARNING PORTAL</option>
+          <option value="AI Agent">AI Agent</option>
+          <option value="OJT Portal">OJT Portal</option>
+          <option value="Project Finder">Project Finder</option>
+        </select>
+      </div>
+      <div class="field email-status-filter">
+        <label for="emHistorySort">Sort by</label>
+        <select id="emHistorySort" onchange="emFilterHistory()">
+          <option value="dateDesc">Newest first</option>
+          <option value="dateAsc">Oldest first</option>
+          <option value="subjectAsc">Subject A–Z</option>
+          <option value="subjectDesc">Subject Z–A</option>
+          <option value="recipientsDesc">Most recipients</option>
+          <option value="recipientsAsc">Fewest recipients</option>
+        </select>
+      </div>
+      <button class="btn-reset" type="button" id="emRefreshBtn" onclick="emLoadHistory(this)">
+        <i class="fa-solid fa-rotate"></i> Refresh
+      </button>
+    </div>
+
+    <div id="emHistoryLoading" class="center-col"><div class="spinner"></div></div>
+
+    <div class="table-scroll" id="emHistoryTableWrap" style="display:none;">
+      <table class="responsive-table sales-table">
+        <thead><tr>
+          <th>Subject</th><th>Sender</th><th>Audience</th>
+          <th class="col-num">Recipients</th><th>Date</th><th class="col-center">Status</th>
+        </tr></thead>
+        <tbody id="emHistoryBody"></tbody>
+      </table>
+    </div>
+
+    <div id="emHistoryEmpty" class="empty-state" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- ══════════════ COMPOSER ══════════════ -->
+<div class="email-screen" id="emComposerScreen">
+  <button class="back-link" type="button" onclick="emShowHistory()">
+    <i class="fa-solid fa-arrow-left"></i> Back to broadcasts
+  </button>
+
+  <div class="card">
+    <div class="card-title" id="emComposerTitle">New Broadcast</div>
+
+    <div class="field">
+      <label for="emTheme">Theme</label>
+      <select id="emTheme" onchange="emApplyThemeDefaults()"></select>
+      <div id="emThemeInfo" class="field-hint"></div>
+    </div>
+
+    <div class="field">
+      <label for="emSubject">Subject line</label>
+      <input type="text" id="emSubject" placeholder="e.g. Maligayang Pasko from Inner SPARC!"/>
+    </div>
+
+    <div class="field">
+      <label for="emHeadline">Headline (shown under the brand name)</label>
+      <input type="text" id="emHeadline"/>
+    </div>
+
+    <div class="field">
+      <label for="emGreeting">Greeting</label>
+      <input type="text" id="emGreeting" placeholder="Hi [Agent Name],"/>
+    </div>
+
+    <div class="field">
+      <label for="emEditor">Message body</label>
+
+      <div class="email-toolbar" id="emToolbar" role="toolbar" aria-label="Formatting toolbar">
+        <div class="email-tb-group">
+          <button type="button" class="email-tb-btn" onclick="emUndo()" aria-label="Undo" title="Undo"><i class="fa-solid fa-rotate-left"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emRedo()" aria-label="Redo" title="Redo"><i class="fa-solid fa-rotate-right"></i></button>
+        </div>
+        <span class="email-tb-sep" aria-hidden="true"></span>
+
+        <div class="email-tb-group">
+          <select class="email-tb-select" id="emFontFamily" aria-label="Font family" onchange="emSetFontFamily(this.value)">
+            <option value="">Font</option>
+            <option value="Montserrat, Arial, sans-serif">Montserrat</option>
+            <option value="Arial, Helvetica, sans-serif">Arial</option>
+            <option value="'Helvetica Neue', Helvetica, Arial, sans-serif">Helvetica</option>
+            <option value="Georgia, 'Times New Roman', serif">Georgia</option>
+            <option value="'Times New Roman', Times, serif">Times New Roman</option>
+            <option value="Verdana, Geneva, sans-serif">Verdana</option>
+            <option value="Tahoma, Geneva, sans-serif">Tahoma</option>
+            <option value="'Trebuchet MS', Helvetica, sans-serif">Trebuchet MS</option>
+            <option value="'Courier New', Courier, monospace">Courier New</option>
+            <option value="'Lucida Sans Unicode', 'Lucida Grande', sans-serif">Lucida Sans</option>
+          </select>
+          <select class="email-tb-select" id="emFontSize" aria-label="Font size" onchange="emSetFontSize(this.value)">
+            <option value="">Size</option>
+          </select>
+        </div>
+        <span class="email-tb-sep" aria-hidden="true"></span>
+
+        <div class="email-tb-group">
+          <button type="button" class="email-tb-btn" data-cmd="bold" onclick="emExecCommand('bold')" aria-label="Bold" title="Bold"><i class="fa-solid fa-bold"></i></button>
+          <button type="button" class="email-tb-btn" data-cmd="italic" onclick="emExecCommand('italic')" aria-label="Italic" title="Italic"><i class="fa-solid fa-italic"></i></button>
+          <button type="button" class="email-tb-btn" data-cmd="underline" onclick="emExecCommand('underline')" aria-label="Underline" title="Underline"><i class="fa-solid fa-underline"></i></button>
+          <button type="button" class="email-tb-btn" data-cmd="strikeThrough" onclick="emExecCommand('strikeThrough')" aria-label="Strikethrough" title="Strikethrough"><i class="fa-solid fa-strikethrough"></i></button>
+          <label class="email-tb-colorwrap"><input type="color" class="email-tb-color" id="emTextColor" aria-label="Text color" value="#2b2b33" oninput="emSetColor('foreColor', this.value)"/><span>Text</span></label>
+          <label class="email-tb-colorwrap"><input type="color" class="email-tb-color" id="emHighlightColor" aria-label="Highlight color" value="#fff3b0" oninput="emSetColor('hiliteColor', this.value)"/><span>Fill</span></label>
+        </div>
+        <span class="email-tb-sep" aria-hidden="true"></span>
+
+        <div class="email-tb-group">
+          <select class="email-tb-select" id="emBlockStyle" aria-label="Paragraph style" onchange="emSetBlockStyle(this.value)">
+            <option value="P">Normal text</option>
+            <option value="H1">Title</option>
+            <option value="H2">Heading 1</option>
+            <option value="H3">Heading 2</option>
+            <option value="H4">Heading 3</option>
+            <option value="BLOCKQUOTE">Blockquote</option>
+          </select>
+          <select class="email-tb-select" id="emLineSpacing" aria-label="Line spacing" onchange="emSetLineSpacing(this.value)">
+            <option value="">Spacing</option>
+            <option value="1">Single</option>
+            <option value="1.15">1.15</option>
+            <option value="1.5">1.5</option>
+            <option value="2">Double</option>
+          </select>
+        </div>
+        <span class="email-tb-sep" aria-hidden="true"></span>
+
+        <div class="email-tb-group">
+          <button type="button" class="email-tb-btn" onclick="emExecCommand('justifyLeft')" aria-label="Align left" title="Align left"><i class="fa-solid fa-align-left"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emExecCommand('justifyCenter')" aria-label="Align center" title="Align center"><i class="fa-solid fa-align-center"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emExecCommand('justifyRight')" aria-label="Align right" title="Align right"><i class="fa-solid fa-align-right"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emExecCommand('justifyFull')" aria-label="Justify" title="Justify"><i class="fa-solid fa-align-justify"></i></button>
+        </div>
+        <span class="email-tb-sep" aria-hidden="true"></span>
+
+        <div class="email-tb-group">
+          <button type="button" class="email-tb-btn" onclick="emExecCommand('insertUnorderedList')" aria-label="Bulleted list" title="Bulleted list"><i class="fa-solid fa-list-ul"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emExecCommand('insertOrderedList')" aria-label="Numbered list" title="Numbered list"><i class="fa-solid fa-list-ol"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emInsertChecklist()" aria-label="Checklist" title="Checklist"><i class="fa-solid fa-square-check"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emExecCommand('indent')" aria-label="Increase indent" title="Increase indent"><i class="fa-solid fa-indent"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emExecCommand('outdent')" aria-label="Decrease indent" title="Decrease indent"><i class="fa-solid fa-outdent"></i></button>
+        </div>
+        <span class="email-tb-sep" aria-hidden="true"></span>
+
+        <div class="email-tb-group">
+          <button type="button" class="email-tb-btn" onclick="emInsertHorizontalRule()" aria-label="Horizontal rule" title="Horizontal rule"><i class="fa-solid fa-minus"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emInsertSectionDivider()" aria-label="Section divider" title="Section divider"><i class="fa-solid fa-grip-lines"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emInsertLink()" aria-label="Insert link" title="Insert link"><i class="fa-solid fa-link"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emEditLink()" aria-label="Edit link" title="Edit link"><i class="fa-solid fa-pen-to-square"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emRemoveLink()" aria-label="Remove link" title="Remove link"><i class="fa-solid fa-link-slash"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emInsertCtaButton()" aria-label="Insert button (CTA link)" title="Insert button (CTA link)"><i class="fa-solid fa-square-arrow-up-right"></i></button>
+          <button type="button" class="email-tb-btn" id="emTableBtn" onclick="emToggleTablePicker(this)" aria-label="Insert table" title="Insert table"><i class="fa-solid fa-table"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emPickImages()" aria-label="Insert image" title="Insert image(s)"><i class="fa-solid fa-image"></i></button>
+          <input type="file" id="emImageInput" accept="image/png,image/jpeg,image/gif,image/webp" multiple style="display:none;" onchange="emOnImagesChosen(this)"/>
+        </div>
+        <span class="email-tb-sep" aria-hidden="true"></span>
+
+        <div class="email-tb-group">
+          <button type="button" class="email-tb-btn" onclick="emExecCommand('superscript')" aria-label="Superscript" title="Superscript"><i class="fa-solid fa-superscript"></i></button>
+          <button type="button" class="email-tb-btn" onclick="emExecCommand('subscript')" aria-label="Subscript" title="Subscript"><i class="fa-solid fa-subscript"></i></button>
+          <button type="button" class="email-tb-btn text" onclick="emTransformCase('upper')" aria-label="UPPERCASE selection">AA</button>
+          <button type="button" class="email-tb-btn text" onclick="emTransformCase('lower')" aria-label="lowercase selection">aa</button>
+          <button type="button" class="email-tb-btn text" onclick="emTransformCase('title')" aria-label="Title Case selection">Aa</button>
+          <button type="button" class="email-tb-btn" onclick="emClearFormatting()" aria-label="Clear formatting" title="Clear formatting"><i class="fa-solid fa-text-slash"></i></button>
+          <button type="button" class="email-tb-btn" id="emFindBtn" onclick="emToggleFindReplace(this)" aria-label="Find and replace" title="Find and replace"><i class="fa-solid fa-magnifying-glass"></i></button>
+        </div>
+        <span class="email-tb-sep" aria-hidden="true"></span>
+
+        <div class="email-tb-group">
+          <button type="button" class="email-tb-btn" onclick="emOpenHtmlSource()" aria-label="View or edit HTML source" title="HTML source — paste or write raw HTML/CSS"><i class="fa-solid fa-code"></i></button>
+        </div>
+      </div>
+
+      <div id="emEditorWrap" class="email-editor-wrap">
+        <div id="emEditor" class="email-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Broadcast message body"></div>
+
+        <div id="emImgBox" class="email-img-box"><div id="emImgHandle" class="email-img-handle" title="Drag to resize"></div></div>
+
+        <div id="emImgBar" class="email-img-bar" role="toolbar" aria-label="Image tools">
+          <button type="button" onclick="emImgSetWidth(150)" title="Small">S</button>
+          <button type="button" onclick="emImgSetWidth(280)" title="Medium">M</button>
+          <button type="button" onclick="emImgSetWidth(400)" title="Large">L</button>
+          <button type="button" onclick="emImgSetWidth(548)" title="Full width">Full</button>
+          <span class="email-img-sep"></span>
+          <button type="button" onclick="emImgAlign('left')" title="Align left"><i class="fa-solid fa-align-left"></i></button>
+          <button type="button" onclick="emImgAlign('center')" title="Align center"><i class="fa-solid fa-align-center"></i></button>
+          <button type="button" onclick="emImgAlign('right')" title="Align right"><i class="fa-solid fa-align-right"></i></button>
+          <button type="button" onclick="emImgAlign('inline')" title="Side by side (inline)"><i class="fa-solid fa-table-columns"></i></button>
+          <span class="email-img-sep"></span>
+          <button type="button" onclick="emMoveImage_(-1)" title="Move up"><i class="fa-solid fa-arrow-up"></i></button>
+          <button type="button" onclick="emMoveImage_(1)" title="Move down"><i class="fa-solid fa-arrow-down"></i></button>
+          <button type="button" class="danger" onclick="emImgDelete()" title="Delete image"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>
+      <div class="field-hint" id="emImgStatus"></div>
+      <div class="email-counters" id="emCounters">0 characters · 0 words</div>
+    </div>
+
+    <div class="field">
+      <label for="emBulletsInput">Update panels</label>
+      <textarea id="emBulletsInput" rows="6"
+        style="width:100%;min-height:140px;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:14px;font-family:inherit;background:var(--white);color:var(--black);resize:vertical;"
+        placeholder="Title: 💼 CMS
+        Description: Insert CMS update details here
+
+        Title: 🏠 CRM
+        Description: Insert CRM update details here"
+        oninput="emUpdateCounters()"></textarea>
+      <div class="field-hint">Separate each panel with a blank line. The first line is the panel title, the rest is its description.</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:6px 0;">
+        <button class="btn-reset" type="button" onclick="emPickFieldImage('emBulletsInput')"><i class="fa-solid fa-image"></i> Insert image</button>
+        <select id="emBulletsImgMode" aria-label="Image position in panel" style="min-height:37px;padding:6px 10px;border:1.5px solid var(--gray-200);border-radius:8px;font-size:12px;font-weight:600;background:var(--white);color:var(--gray-800);">
+          <option value="side">Beside text (inside the panel)</option>
+          <option value="below">Below text (inside the panel)</option>
+        </select>
+        <span class="field-hint" style="margin:0;">Place the cursor on the panel's text line first. The image joins that panel.</span>
+      </div>
+      <div id="emBulletsCounter" class="field-hint"></div>
+    </div>
+
+    <div class="field">
+      <label for="emSignoff">Sign-off <span style="font-weight:500;color:var(--gray-500);">(optional)</span></label>
+      <div class="field-hint" style="margin:0 0 6px;">
+        Type <strong>[Agent Name]</strong> anywhere here (or in the Greeting or message body) and each recipient's own name will be filled in, e.g. "Salamat, [Agent Name]!".
+        <button class="btn-reset" type="button" style="min-height:30px;padding:4px 10px;font-size:11.5px;margin-left:6px;" onclick="emInsertAgentName()">Insert [Agent Name]</button>
+      </div>
+      <textarea id="emSignoff" rows="8"
+        style="width:100%;min-height:180px;padding:10px 12px;border:1.5px solid var(--gray-200);border-radius:9px;font-size:14px;font-family:inherit;background:var(--white);color:var(--black);resize:vertical;"></textarea>
+    </div>
+
+    <div class="field" style="margin-top:-6px;">
+      <button class="btn-reset" type="button" onclick="emPickFieldImage('emSignoff')"><i class="fa-solid fa-image"></i> Insert image in sign-off</button>
+      <input type="file" id="emFieldImageInput" accept="image/png,image/jpeg,image/gif,image/webp" multiple style="display:none;" onchange="emOnFieldImageChosen(this)"/>
+    </div>
+
+    <div class="field">
+      <label for="emRecipientMode">Send to</label>
+      <select id="emRecipientMode" onchange="emUpdateRecipientValueVisibility()">
+        <option value="all">Everyone (all portal users)</option>
+        <option value="role">Everyone with a specific role</option>
+        <option value="specific">Specific agents (by email)</option>
+      </select>
+    </div>
+
+    <div class="field" id="emRoleField" style="display:none;">
+      <label for="emRecipientRole">Role</label>
+      <select id="emRecipientRole" onchange="emQueueRecipientPreview_()">
+        <option value="Agent">Agent</option>
+        <option value="Supervisor">Supervisor</option>
+        <option value="Manager">Manager</option>
+        <option value="Admin">Admin</option>
+      </select>
+    </div>
+
+    <div class="field" id="emEmailsField" style="display:none;">
+      <label>Select recipients</label>
+      <input type="search" id="emRecipientSearch" class="email-recipient-search"
+             placeholder="Search by name or email…"
+             oninput="emFilterRecipientCheckboxes()" autocomplete="off"/>
+      <div class="email-recipient-list">
+        <div id="emRecipientCheckboxList" class="email-recipient-grid"></div>
+      </div>
+      <div class="field-hint" id="emRecipientCheckboxHint"></div>
+    </div>
+
+    <div class="field">
+      <label id="emPreviewRecipientsLabel">Audience</label>
+      <div id="emRecipientPreview" class="email-recipient-preview">
+        <i class="fa-solid fa-users"></i> <span id="emRecipientPreviewText">Select an audience above to see the recipient count.</span>
+      </div>
+    </div>
+
+    <div class="auth-msg" id="emSendMsg"></div>
+
+    <div class="field">
+      <label for="emScheduleAt">Schedule for (optional)</label>
+      <input type="datetime-local" id="emScheduleAt"/>
+      <div class="field-hint">Leave blank to send immediately. Scheduled broadcasts are checked every ~5 minutes, so delivery can lag a few minutes past the exact time.</div>
+    </div>
+
+    <div class="email-composer-actions">
+      <button class="btn btn-primary" type="button" id="emSendBtn" onclick="emOpenSendConfirmation(this)">
+        <i class="fa-solid fa-paper-plane"></i> Review &amp; Send
+      </button>
+      <button class="btn-reset" type="button" id="emScheduleBtn" onclick="emScheduleCampaign(this)">
+        <i class="fa-solid fa-clock"></i> Schedule Send
+      </button>
+      <button class="btn-reset" type="button" id="emSaveDraftBtn" onclick="emSaveDraft(this)">
+        <i class="fa-solid fa-floppy-disk"></i> Save Draft
+      </button>
+      <button class="btn-reset" type="button" onclick="emPreviewHtml()">
+        <i class="fa-solid fa-eye"></i> Preview Email
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ POPOVERS ══════════════ -->
+<div class="email-popover" id="emTablePicker" role="dialog" aria-label="Insert table">
+  <div class="email-popover-title">Insert table</div>
+  <div class="email-grid" id="emTableGrid"></div>
+  <div class="email-grid-label" id="emTableGridLabel">0 × 0</div>
+</div>
+
+<div class="email-popover" id="emCharPicker" role="dialog" aria-label="Special characters and emoji">
+  <div class="email-popover-title">Special characters</div>
+  <div class="email-chars" id="emCharGrid"></div>
+</div>
+
+<div class="email-popover" id="emFindPanel" role="dialog" aria-label="Find and replace">
+  <div class="email-popover-title">Find &amp; replace</div>
+  <div class="email-find-row">
+    <label for="emFindInput" style="font-size:11px;font-weight:700;color:var(--gray-600);min-width:52px;">Find</label>
+    <input type="text" id="emFindInput" placeholder="Find…"/>
+  </div>
+  <div class="email-find-row">
+    <label for="emReplaceInput" style="font-size:11px;font-weight:700;color:var(--gray-600);min-width:52px;">Replace</label>
+    <input type="text" id="emReplaceInput" placeholder="Replace with…"/>
+  </div>
+  <div class="email-find-actions">
+    <button class="btn-reset" type="button" onclick="emFindReplace('find')">Find</button>
+    <button class="btn-reset" type="button" onclick="emFindReplace('replace')">Replace</button>
+    <button class="btn-reset" type="button" onclick="emFindReplace('replaceAll')">Replace All</button>
+  </div>
+  <div class="email-find-status" id="emFindStatus"></div>
+</div>
+
+<!-- ══════════════ MODALS (Portal conventions) ══════════════ -->
+<div id="emailPreviewOverlay" class="modal-overlay" style="display:none;z-index:110;" onclick="if(event.target===this) closeEmailPreview();">
+  <div class="modal-card" style="max-width:720px;">
+    <div class="modal-head">
+      <div class="modal-title">📧 Email Preview</div>
+      <button class="modal-close" type="button" onclick="closeEmailPreview()" aria-label="Close preview"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <iframe id="emailPreviewFrame" title="Email preview" style="width:100%;height:65vh;border:1px solid var(--gray-100);border-radius:8px;background:#fff;"></iframe>
+    <div class="kbd-hint"><kbd>Esc</kbd> to close</div>
+  </div>
+</div>
+
+<div id="emHtmlSourceOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) emCloseHtmlSource();">
+  <div class="modal-card" style="max-width:720px;">
+    <div class="modal-head">
+      <div class="modal-title">&lt;/&gt; HTML source</div>
+      <button class="modal-close" type="button" onclick="emCloseHtmlSource()" aria-label="Close HTML source"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="field-hint" style="margin-bottom:8px;">
+      Paste or write raw HTML directly — it will be rendered in the message body and shown in the preview. Inline <code>style="…"</code> CSS is kept and applied.
+      Recognized tags: <code>a, b/strong, i/em, u, s, p, br, div, span, h1–h4, blockquote, ul, ol, li, hr, table/tr/td/th, sup, sub, pre, code</code>.
+      Unsupported tags (e.g. <code>&lt;style&gt;</code> blocks, <code>&lt;script&gt;</code>, <code>&lt;img&gt;</code>, classes) are stripped for email-client compatibility — use inline <code>style</code> attributes instead.
+    </div>
+    <textarea id="emHtmlSourceInput" class="email-html-source-textarea" spellcheck="false" aria-label="HTML source code" placeholder="&lt;p style=&quot;color:#222689;font-weight:700;&quot;&gt;Hello!&lt;/p&gt;"></textarea>
+    <div class="email-modal-actions">
+      <button class="btn-reset" type="button" onclick="emCloseHtmlSource()">Cancel</button>
+      <button class="btn btn-primary" type="button" onclick="emApplyHtmlSource()">Apply to message body</button>
+    </div>
+  </div>
+</div>
+
+<div id="emConfirmOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) emCloseConfirm();">
+  <div class="modal-card" style="max-width:520px;">
+    <div class="modal-head">
+      <div class="modal-title">Confirm broadcast</div>
+      <button class="modal-close" type="button" onclick="emCloseConfirm()" aria-label="Close confirmation"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div id="emConfirmMsg" class="auth-msg"></div>
+    <div class="email-confirm-list" id="emConfirmBody"></div>
+    <div class="email-modal-actions">
+      <button class="btn" type="button" style="background:var(--gray-100);color:var(--gray-800);" onclick="emCloseConfirm()">Cancel</button>
+      <button class="btn btn-primary" type="button" id="emConfirmSendBtn" onclick="emSendCampaign(this)"><i class="fa-solid fa-paper-plane"></i> Send Broadcast</button>
+    </div>
+    <div class="kbd-hint"><kbd>Esc</kbd> to cancel</div>
+  </div>
+</div>
+
+<div id="emDetailOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) emCloseDetail();">
+  <div class="modal-card" style="max-width:720px;">
+    <div class="modal-head">
+      <div class="modal-title" id="emDetailTitle">Broadcast</div>
+      <button class="modal-close" type="button" onclick="emCloseDetail()" aria-label="Close broadcast details"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div id="emDetailBody"></div>
+    <div class="email-modal-actions" id="emDetailActions"></div>
+    <div class="kbd-hint"><kbd>Esc</kbd> to close</div>
+  </div>
+</div>
+
+<div id="emLogOverlay" class="modal-overlay" style="display:none;" onclick="if(event.target===this) emCloseLog();">
+  <div class="modal-card" style="max-width:760px;">
+    <div class="modal-head">
+      <div class="modal-title" id="emLogTitle">Send log</div>
+      <button class="modal-close" type="button" onclick="emCloseLog()" aria-label="Close send log"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div id="emLogListPane">
+      <div class="filters email-history-toolbar" style="margin-bottom:10px;">
+        <div class="field email-search">
+          <label for="emLogSearch">Search recipients</label>
+          <input type="search" id="emLogSearch" placeholder="Name or email…" oninput="emRenderLog_()"/>
+        </div>
+        <div class="field email-status-filter">
+          <label for="emLogStatusFilter">Status</label>
+          <select id="emLogStatusFilter" onchange="emRenderLog_()">
+            <option value="">All</option>
+            <option value="Pending">Pending</option>
+            <option value="Sent">Sent</option>
+            <option value="Opened">Opened</option>
+            <option value="Failed">Failed / Error</option>
+          </select>
+        </div>
+        <div class="field email-status-filter">
+          <label for="emLogSort">Sort by</label>
+          <select id="emLogSort" onchange="emRenderLog_()">
+            <option value="name">Name</option>
+            <option value="sentAt">Sent At</option>
+            <option value="openedAt">First Opened</option>
+            <option value="openCount">Open Count</option>
+            <option value="lastOpenedAt">Read Span</option>
+          </select>
+        </div>
+      </div>
+      <div id="emLogBody"></div>
+    </div>
+    <div id="emLogDetailPane" style="display:none;">
+      <button class="back-link" type="button" onclick="emShowLogList_()"><i class="fa-solid fa-arrow-left"></i> Back to recipients</button>
+      <div id="emLogDetailBody"></div>
+    </div>
+    <div class="kbd-hint"><kbd>Esc</kbd> to close</div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// Email Campaigner — feature module for Portal.html's #view-emails.
+// Depends only on the portal's shared helpers (esc_, getSession,
+// setBtnBusy_, showPortalToast_) and on the ec_* server namespace.
+// ══════════════════════════════════════════════════════════════
+let emThemesCache   = [];
+let emCampaigns     = [];
+let emCurrentDraftId = null;   // set when a Draft is reopened for editing
+let emEditorReady   = false;
+let emSending       = false;   // hard guard against double submission
+let emConfirmContext = null;   // { payload, count, audienceLabel } from the server
+
+// ── Screens ─────────────────────────────────────────────────
+function emShowScreen_(id){
+  ['emHistoryScreen','emComposerScreen'].forEach(function(s){
+    const el = document.getElementById(s);
+    if(el) el.classList.toggle('active', s === id);
+  });
+  emCloseAllPopovers_();
+}
+function emShowHistory(){ emShowScreen_('emHistoryScreen'); }
+
+function emNewBroadcast(){
+  emCurrentDraftId = null;
+  document.getElementById('emComposerTitle').textContent = 'New Broadcast';
+  document.getElementById('emScheduleAt').value = '';
+  emSetMsg_('');
+  emQueueRecipientPreview_();
+  document.getElementById('emRecipientMode').value = 'all';
+  emUpdateRecipientValueVisibility();
+  emApplyThemeDefaults();
+  emClearAttachments_();
+  emShowScreen_('emComposerScreen');
+  document.getElementById('emSubject').focus();
+}
+
+// ── Entry point (called by Portal's navTo('emails')) ────────
+function emLoadComposer(){
+  try { emInitEditor(); } catch(e){ console.error('emInitEditor failed:', e); }
+  try { emBindFieldImageEvents_(); } catch(e){ console.error('field image bind failed:', e); }
+
+  // Themes are always re-fetched so the picker matches EC_THEMES_ on the
+  // server without needing a hard refresh.
+  google.script.run.withSuccessHandler(function(res){
+    const info = document.getElementById('emThemeInfo');
+    if(!res || !res.ok){
+      if(info) info.textContent = 'Could not load themes: ' + ((res && res.error) || 'unknown error');
+      return;
+    }
+    emThemesCache = res.themes || [];
+    const sel = document.getElementById('emTheme');
+    const previousKey = sel.value;
+    sel.innerHTML = emThemesCache.map(function(t){
+      return '<option value="' + esc_(t.key) + '">' + esc_(t.emoji + '  ' + t.label) + '</option>';
+    }).join('');
+    if(previousKey && emThemesCache.some(function(x){ return x.key === previousKey; })) sel.value = previousKey;
+    if(!emCurrentDraftId) emApplyThemeDefaults(); else emShowThemeInfo_();
+  }).withFailureHandler(function(err){
+    const info = document.getElementById('emThemeInfo');
+    if(info) info.textContent = 'Theme load failed: ' + err;
+  }).ec_listThemes(getSession());
+
+  emLoadHistory();
+}
+
+// ══════════════════════════════════════════════════════════════
+// BROADCAST HISTORY
+// ══════════════════════════════════════════════════════════════
+function emLoadDashboardStats_(){
+  google.script.run.withSuccessHandler(function(res){
+    if(!res || !res.ok){
+      console.error('emLoadDashboardStats_ returned an error:', res);
+      return;
+    }
+    const s = res.stats || {};
+    document.getElementById('emStatTotal').textContent  = Number(s.total)  || 0;
+    document.getElementById('emStatSent').textContent   = Number(s.sent)   || 0;
+    document.getElementById('emStatOpened').textContent = Number(s.opened) || 0;
+    document.getElementById('emStatRate').textContent   = (Number(s.openRate) || 0) + '%';
+  }).withFailureHandler(function(err){
+    console.error('emLoadDashboardStats_ failed:', err);
+  }).ec_getEmailDashboardStats(getSession());
+}
+
+function emLoadHistory(btn){
+  if(btn) setBtnBusy_(btn, true, '<span class="btn-spin"></span> Refreshing…');
+  const loading = document.getElementById('emHistoryLoading');
+  if(!emCampaigns.length && loading) loading.style.display = 'flex';
+  emLoadDashboardStats_();
+
+  // Safety net: if the server call never resolves (authorization failure
+  // that doesn't throw, network stall, etc.), the spinner would otherwise
+  // stay up forever — which is exactly the "loading loop" symptom.
+  const loadTimeout = setTimeout(function(){
+    if(loading && loading.style.display !== 'none'){
+      loading.style.display = 'none';
+      emRenderHistoryEmpty_('Loading timed out. Please refresh and try again.');
+    }
+    if(btn) setBtnBusy_(btn, false);
+  }, 15000);
+
+  google.script.run.withSuccessHandler(function(res){
+    clearTimeout(loadTimeout);
+    if(btn) setBtnBusy_(btn, false);
+    if(loading) loading.style.display = 'none';
+    if(!res || !res.ok){
+      emCampaigns = [];
+      emRenderHistoryEmpty_((res && res.error) || 'Could not load broadcasts.');
+      return;
+    }
+    emCampaigns = res.campaigns || [];
+    emFilterHistory();
+  }).withFailureHandler(function(err){
+    clearTimeout(loadTimeout);
+    if(btn) setBtnBusy_(btn, false);
+    if(loading) loading.style.display = 'none';
+    console.error('emLoadHistory failed:', err);
+    emRenderHistoryEmpty_('Something went wrong loading your broadcasts. Please try again.');
+  }).ec_listCampaigns(getSession());
+}
+
+function emHistorySortTime_(c){
+  const raw = c.sentAt || c.createdAt || '';
+  const t = raw ? new Date(raw).getTime() : 0;
+  return isNaN(t) ? 0 : t;
+}
+
+/** Comparator for the Broadcast History "Sort by" dropdown. Each branch
+ *  returns a stable ordering; ties (e.g. two drafts with the same
+ *  timestamp) fall back to newest-first so the list never jumps around
+ *  on repeated loads. */
+function emHistoryComparator_(sortBy){
+  switch(sortBy){
+    case 'dateAsc':
+      return (a, b) => emHistorySortTime_(a) - emHistorySortTime_(b);
+    case 'subjectAsc':
+      return (a, b) => String(a.subject||'').localeCompare(String(b.subject||''), undefined, {sensitivity:'base'})
+        || (emHistorySortTime_(b) - emHistorySortTime_(a));
+    case 'subjectDesc':
+      return (a, b) => String(b.subject||'').localeCompare(String(a.subject||''), undefined, {sensitivity:'base'})
+        || (emHistorySortTime_(b) - emHistorySortTime_(a));
+    case 'recipientsDesc':
+      return (a, b) => (Number(b.recipientCount)||0) - (Number(a.recipientCount)||0)
+        || (emHistorySortTime_(b) - emHistorySortTime_(a));
+    case 'recipientsAsc':
+      return (a, b) => (Number(a.recipientCount)||0) - (Number(b.recipientCount)||0)
+        || (emHistorySortTime_(b) - emHistorySortTime_(a));
+    case 'dateDesc':
+    default:
+      return (a, b) => emHistorySortTime_(b) - emHistorySortTime_(a);
+  }
+}
+
+function emStatusClass_(status){
+  const s = String(status || '').toLowerCase();
+  if(s === 'sent') return 'sent';
+  if(s === 'partially sent') return 'partial';
+  if(s === 'failed') return 'failed';
+  if(s === 'sending') return 'sending';
+  if(s === 'scheduled') return 'scheduled';
+  return 'draft';
+}
+
+function emRenderHistoryEmpty_(message, withReset){
+  document.getElementById('emHistoryTableWrap').style.display = 'none';
+  const empty = document.getElementById('emHistoryEmpty');
+  empty.style.display = '';
+  empty.innerHTML = '<i class="fa-solid fa-envelope-open-text"></i>'
+    + '<div>' + esc_(message) + '</div>'
+    + (withReset
+        ? '<button class="btn-reset" type="button" style="margin-top:14px;" onclick="emResetHistoryFilters()"><i class="fa-solid fa-rotate-left"></i> Reset filters</button>'
+        : '<button class="btn btn-primary" type="button" style="width:auto;margin:14px auto 0;padding:10px 18px;" onclick="emNewBroadcast()"><i class="fa-solid fa-pen-to-square"></i> New Broadcast</button>');
+}
+
+function emFilterHistory(){
+  const term = String(document.getElementById('emSearch').value || '').trim().toLowerCase();
+  const status = document.getElementById('emStatusFilter').value;
+
+  if(!emCampaigns.length){
+    emRenderHistoryEmpty_('Create your first broadcast to communicate with your approved audience.');
+    return;
+  }
+
+  // Search runs entirely against the already-loaded campaign set.
+  const EM_SYSTEM_KEYWORDS = {
+    'CRM': ['crm'], 'CMS': ['cms'], 'AGENT PORTAL': ['agent portal'],
+    'E-LEARNING PORTAL': ['e-learning', 'elearning', 'e learning'],
+    'AI Agent': ['ai agent'], 'OJT Portal': ['ojt'], 'Project Finder': ['project finder']
+  };
+  const sysSel = document.getElementById('emSystemFilter');
+  const sysWords = sysSel && sysSel.value ? (EM_SYSTEM_KEYWORDS[sysSel.value] || []) : [];
+
+  const list = emCampaigns.filter(function(c){
+    if(status && String(c.status || '') !== status) return false;
+    if(sysWords.length){
+      const hay = [c.subject, c.headline, c.bullets, c.bodyText, c.bodyHtml].join(' ').toLowerCase();
+      if(!sysWords.some(function(w){ return hay.indexOf(w) !== -1; })) return false;
+    }
+    if(!term) return true;
+    return [c.subject, c.audienceLabel, c.createdBy, c.status, c.snippet, c.recipientMode]
+      .map(function(x){ return String(x || '').toLowerCase(); })
+      .some(function(x){ return x.indexOf(term) !== -1; });
+  });
+
+  const sortSel = document.getElementById('emHistorySort');
+  const sortBy = sortSel ? sortSel.value : 'dateDesc';
+  list.sort(emHistoryComparator_(sortBy));
+
+  if(!list.length){
+    emRenderHistoryEmpty_('No broadcasts match the current criteria.', true);
+    return;
+  }
+
+  document.getElementById('emHistoryEmpty').style.display = 'none';
+  document.getElementById('emHistoryTableWrap').style.display = '';
+  document.getElementById('emHistoryBody').innerHTML = list.map(function(c){
+    const when = c.sentAt || c.createdAt || '—';
+    return '<tr class="clickable" onclick="emOpenCampaignDetail(\'' + esc_(c.campaignId) + '\')">'
+      + '<td data-label="Subject"><span class="email-row-subject">' + esc_(c.subject || '(no subject)') + '</span>'
+        + (c.snippet ? '<span class="email-row-snippet">' + esc_(c.snippet) + '</span>' : '') + '</td>'
+      + '<td data-label="Sender"><span class="email-row-sender">' + esc_(c.createdBy || '—') + '</span></td>'
+      + '<td data-label="Audience"><span class="email-row-audience">' + esc_(c.audienceLabel || c.recipientMode || '—') + '</span></td>'
+      + '<td data-label="Recipients" class="col-num">' + (Number(c.recipientCount) || 0) + '</td>'
+      + '<td data-label="Date">' + esc_(when) + '</td>'
+      + '<td data-label="Status" class="col-center"><span class="broadcast-status ' + emStatusClass_(c.status) + '">' + esc_(c.status || '—') + '</span></td>'
+    + '</tr>';
+  }).join('');
+}
+
+function emResetHistoryFilters(){
+  document.getElementById('emSearch').value = '';
+  document.getElementById('emStatusFilter').value = '';
+  const sysReset = document.getElementById('emSystemFilter'); if(sysReset) sysReset.value = '';
+  const sortSel = document.getElementById('emHistorySort');
+  if(sortSel) sortSel.value = 'dateDesc';
+  emFilterHistory();
+}
+
+/** "11 of 29 opened (37.9%)" — computed from the Sent/Opened counts
+ *  ec_listCampaigns now attaches to every campaign object. Returns "—"
+ *  when nothing was actually sent (e.g. a fully-failed broadcast). */
+function emOpenRatioText_(c){
+  const sent = Number(c.openSentCount) || 0;
+  const opened = Number(c.openedCount) || 0;
+  if(!sent) return '—';
+  const rate = Number(c.openRate) || Math.round((opened / sent) * 1000) / 10;
+  return opened + ' of ' + sent + ' (' + rate + '%)';
+}
+
+// ── Detail modal ────────────────────────────────────────────
+function emOpenCampaignDetail(campaignId){
+  const c = emCampaigns.filter(function(x){ return String(x.campaignId) === String(campaignId); })[0];
+  if(!c) return;
+
+  emLastFocus_ = document.activeElement;
+  document.getElementById('emDetailTitle').textContent = c.subject || 'Broadcast';
+
+  // Only genuinely stored server data is shown here — nothing is inferred.
+  let rows = ''
+    + emDetailRow_('Status', c.status || '—')
+    + emDetailRow_('Sender', c.createdBy || '—')
+    + emDetailRow_('Audience', c.audienceLabel || '—')
+    + emDetailRow_('Recipients', String(Number(c.recipientCount) || 0))
+    + emDetailTimeRow_('Created', c.createdAt || '—');
+  if(c.sentAt) rows += emDetailTimeRow_('Sent', c.sentAt);
+  if(String(c.status || '') === 'Scheduled' && c.scheduledForLabel){
+    rows += emDetailTimeRow_('Scheduled Release', c.scheduledForLabel);
+  }
+  if(String(c.status || '') !== 'Draft'){
+    rows += emDetailRow_('Delivered', String(Number(c.successCount) || 0))
+          + emDetailRow_('Failed', String(Number(c.failureCount) || 0))
+          + emDetailRow_('Opened', emOpenRatioText_(c));
+  }
+
+  const body = emSanitizeHtml_(c.bodyHtml || '');
+  const bodyBlock = body
+    ? '<iframe class="email-detail-frame" title="Broadcast body" id="emDetailFrame"></iframe>'
+    : '<div class="empty-state" style="padding:24px;">This broadcast has no stored rich body.</div>';
+
+  document.getElementById('emDetailBody').innerHTML = rows
+    + '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:16px 0 10px;">'
+    +   '<div class="card-title" style="margin:0;">Message</div>'
+    +   '<button class="btn-reset" type="button" style="min-height:34px;padding:6px 12px;font-size:11.5px;" onclick="emPreviewCampaign(\'' + esc_(c.campaignId) + '\')"><i class="fa-solid fa-eye"></i> Email Preview</button>'
+    + '</div>' + bodyBlock;
+
+  const emDetailStatus_ = String(c.status || '');
+  let emDetailActionsHtml_ = '<button class="btn btn-primary" type="button" onclick="emViewCampaignLog(\'' + esc_(c.campaignId) + '\')"><i class="fa-solid fa-list"></i> View full send log</button>';
+  if(emDetailStatus_ === 'Draft'){
+    emDetailActionsHtml_ += '<button class="btn" type="button" style="background:var(--gray-100);color:var(--gray-800);" onclick="emOpenDraft(\'' + esc_(c.campaignId) + '\')"><i class="fa-solid fa-pen"></i> Open draft</button>'
+      + '<button class="btn" type="button" style="background:var(--red-pale);color:var(--red);" onclick="emDeleteDraft(\'' + esc_(c.campaignId) + '\')"><i class="fa-solid fa-trash"></i> Delete draft</button>';
+  } else if(emDetailStatus_ === 'Scheduled'){
+    emDetailActionsHtml_ += '<button class="btn" type="button" style="background:var(--gray-100);color:var(--gray-800);" onclick="emOpenDraft(\'' + esc_(c.campaignId) + '\')"><i class="fa-solid fa-pen"></i> Edit / reschedule</button>'
+      + '<button class="btn" type="button" style="background:var(--red-pale);color:var(--red);" onclick="emCancelSchedule(\'' + esc_(c.campaignId) + '\')"><i class="fa-solid fa-ban"></i> Cancel schedule</button>';
+  } else {
+    emDetailActionsHtml_ += '<button class="btn" type="button" style="background:var(--gray-100);color:var(--gray-800);" onclick="emReuseCampaign(\'' + esc_(c.campaignId) + '\')"><i class="fa-solid fa-copy"></i> Reuse as new draft</button>';
+  }
+  document.getElementById('emDetailActions').innerHTML = emDetailActionsHtml_;
+
+  document.getElementById('emDetailOverlay').style.display = 'flex';
+
+  if(body){
+    // Rendered inside a sandboxed iframe so stored markup can never touch
+    // the portal DOM, mirroring the existing emailPreviewFrame approach.
+    const frame = document.getElementById('emDetailFrame');
+    frame.setAttribute('sandbox', '');
+    frame.srcdoc = '<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"></head>'
+      + '<body style="margin:0;padding:16px;font-family:Montserrat,Arial,sans-serif;color:#2B2B33;background:#fff;">'
+      + body + '</body></html>';
+  }
+  const close = document.querySelector('#emDetailOverlay .modal-close');
+  if(close) close.focus();
+}
+function emDetailRow_(label, value, cls){
+  return '<div class="detail-row' + (cls ? ' ' + cls : '') + '"><div class="dl">' + esc_(label) + '</div><div class="dv">' + esc_(value) + '</div></div>';
+}
+function emDetailTimeRow_(label, value){
+  const v = String(value || '');
+  if(!v || v === '—') return emDetailRow_(label, v);
+  const parts = v.split(' ');
+  const datePart = parts[0] || '';
+  const timePart = parts.slice(1).join(' ');
+  return '<div class="detail-row"><div class="dl">' + esc_(label) + '</div><div class="dv">' + esc_(datePart)
+    + (timePart ? ' <span class="em-time-value">' + esc_(timePart) + '</span>' : '') + '</div></div>';
+}
+function emCloseDetail(){
+  document.getElementById('emDetailOverlay').style.display = 'none';
+  emRestoreFocus_();
+}
+
+function emOpenDraft(campaignId){
+  emCloseDetail();
+  google.script.run.withSuccessHandler(function(res){
+    if(!res || !res.ok){ showPortalToast_((res && res.error) || 'Could not open that draft.'); return; }
+    const c = res.campaign;
+    emCurrentDraftId = c.campaignId;
+    document.getElementById('emComposerTitle').textContent = (c.status === 'Scheduled' ? 'Edit Scheduled — ' : 'Edit Draft — ') + c.campaignId;
+    document.getElementById('emScheduleAt').value = c.scheduledFor ? emIsoToLocalInputValue_(c.scheduledFor) : '';
+    document.getElementById('emTheme').value = c.theme || 'generic';
+    document.getElementById('emSubject').value = c.subject || '';
+    document.getElementById('emHeadline').value = c.headline || '';
+    document.getElementById('emGreeting').value = c.greeting || '';
+    emSetBulletsText_(c.bullets || '');
+    document.getElementById('emSignoff').value = c.signoff || '';
+    document.getElementById('emRecipientMode').value = c.recipientMode || 'all';
+    if(c.recipientMode === 'role') document.getElementById('emRecipientRole').value = c.recipientValue || 'Agent';
+    if(c.recipientMode === 'specific') emSetCheckedRecipients_(c.recipientValue || '');
+    emUpdateRecipientValueVisibility();
+    emSetEditorHtml_(c.bodyHtml || (c.bodyText ? '<p>' + esc_(c.bodyText) + '</p>' : ''));
+    emShowThemeInfo_();
+    emSetMsg_('');
+    emShowScreen_('emComposerScreen');
+  }).withFailureHandler(function(){ showPortalToast_('Could not open that draft.'); })
+    .ec_getCampaign(getSession(), campaignId);
+}
+
+/** Copies a Sent / Partially Sent / Failed broadcast into a brand-new,
+ *  editable Draft (its own Campaign ID, no send history) and opens it in
+ *  the composer. The original broadcast row is left untouched. */
+function emReuseCampaign(campaignId){
+  emCloseDetail();
+  google.script.run.withSuccessHandler(function(res){
+    if(!res || !res.ok){ showPortalToast_((res && res.error) || 'Could not reuse that broadcast.'); return; }
+    const c = res.campaign;
+    emCurrentDraftId = c.campaignId;
+    document.getElementById('emComposerTitle').textContent = 'Edit Draft — ' + c.campaignId;
+    document.getElementById('emTheme').value = c.theme || 'generic';
+    document.getElementById('emSubject').value = c.subject || '';
+    document.getElementById('emHeadline').value = c.headline || '';
+    document.getElementById('emGreeting').value = c.greeting || '';
+    emSetBulletsText_(c.bullets || '');
+    document.getElementById('emSignoff').value = c.signoff || '';
+    document.getElementById('emRecipientMode').value = c.recipientMode || 'all';
+    if(c.recipientMode === 'role') document.getElementById('emRecipientRole').value = c.recipientValue || 'Agent';
+    if(c.recipientMode === 'specific') emSetCheckedRecipients_(c.recipientValue || '');
+    emUpdateRecipientValueVisibility();
+    emSetEditorHtml_(c.bodyHtml || (c.bodyText ? '<p>' + esc_(c.bodyText) + '</p>' : ''));
+    emShowThemeInfo_();
+    emSetMsg_('Copied into a new draft — review before sending.', 'ok');
+    emShowScreen_('emComposerScreen');
+    emLoadHistory();
+  }).withFailureHandler(function(err){ showPortalToast_('Could not reuse that broadcast' + (err && err.message ? ': ' + err.message : '.')); })
+    .ec_duplicateCampaign(getSession(), campaignId);
+}
+
+// ── Send log (per-recipient status + open tracking) ─────────
+let emCurrentLog = [];        // last-loaded log rows for the open modal
+let emCurrentLogCampaignId = null;
+
+// A recipient's effective status for filtering/display purposes: the raw
+// sheet Status is only ever "Sent" or "Failed" (see EC_LOG_HEADERS in
+// EmailCampaign.gs) — "Opened" is derived here from Open Count, and
+// "Pending" covers a log row with no Tracking ID yet resolved (defensive;
+// in practice every row has a status by the time it's written).
+function emLogEffectiveStatus_(r){
+  if(String(r.status || '') === 'Failed') return 'Failed';
+  if((Number(r.openCount) || 0) > 0) return 'Opened';
+  if(String(r.status || '') === 'Sent') return 'Sent';
+  return 'Pending';
+}
+
+/** Span between a recipient's first and most recent detected pixel open —
+ *  the closest proxy we have for "how long they were engaging with it,"
+ *  since a tracking pixel has no way to detect when the email was closed.
+ *  Returns '—' for a single-open recipient (nothing to span). */
+function emDurationBetween_(startStr, endStr, openCount){
+  if(!startStr) return '—';
+  // A single detected open has no second data point to span against —
+  // say so plainly instead of showing a bare dash that looks broken.
+  if((Number(openCount) || 0) <= 1 || !endStr) return 'Opened once';
+  const start = new Date(startStr).getTime();
+  const end = new Date(endStr).getTime();
+  if(isNaN(start) || isNaN(end) || end <= start) return 'Opened once';
+  const totalMinutes = Math.round((end - start) / 60000);
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const mins = totalMinutes % 60;
+  const unit_ = function(n, word){ return n + ' ' + word + (n === 1 ? '' : 's'); };
+  const parts = [];
+  if(days) parts.push(unit_(days, 'day'));
+  if(hours) parts.push(unit_(hours, 'hour'));
+  if(mins || (!days && !hours)) parts.push(unit_(mins, 'minute'));
+  return parts.join(' ');
+}
+
+function emViewCampaignLog(campaignId){
+  emLastFocus_ = document.activeElement;
+  emCurrentLogCampaignId = campaignId;
+  emShowLogList_();
+  document.getElementById('emLogSearch').value = '';
+  document.getElementById('emLogStatusFilter').value = '';
+  const body = document.getElementById('emLogBody');
+  body.innerHTML = '<div class="center-col"><div class="spinner"></div></div>';
+  document.getElementById('emLogOverlay').style.display = 'flex';
+
+  google.script.run.withSuccessHandler(function(res){
+    if(!res || !res.ok){
+      emCurrentLog = [];
+      body.innerHTML = '<div class="empty-state">' + esc_((res && res.error) || 'Could not load the send log.') + '</div>';
+      return;
+    }
+    emCurrentLog = res.log || [];
+    emRenderLog_();
+  }).withFailureHandler(function(){
+    emCurrentLog = [];
+    body.innerHTML = '<div class="empty-state">Something went wrong loading the send log.</div>';
+  }).ec_getCampaignLog(getSession(), campaignId);
+}
+
+function emRenderLog_(){
+  const body = document.getElementById('emLogBody');
+  if(!emCurrentLog.length){ body.innerHTML = '<div class="empty-state">No log entries for this broadcast.</div>'; return; }
+
+  const term = String(document.getElementById('emLogSearch').value || '').trim().toLowerCase();
+  const statusFilter = document.getElementById('emLogStatusFilter').value;
+  const sortBy = document.getElementById('emLogSort').value;
+
+  let rows = emCurrentLog.filter(function(r){
+    if(statusFilter && emLogEffectiveStatus_(r) !== statusFilter) return false;
+    if(!term) return true;
+    return [r.email, r.displayName].map(function(x){ return String(x || '').toLowerCase(); })
+      .some(function(x){ return x.indexOf(term) !== -1; });
+  });
+
+  if(!rows.length){ body.innerHTML = '<div class="empty-state">No recipients match the current search/filter.</div>'; return; }
+
+  rows = rows.slice().sort(function(a, b){
+    if(sortBy === 'name') return String(a.displayName || a.email || '').localeCompare(String(b.displayName || b.email || ''));
+    if(sortBy === 'openCount') return (Number(b.openCount) || 0) - (Number(a.openCount) || 0);
+    // timestamp-ish text fields — a blank value always sorts last, most-recent-first otherwise
+    const av = String(a[sortBy] || ''), bv = String(b[sortBy] || '');
+    if(!av && !bv) return 0;
+    if(!av) return 1;
+    if(!bv) return -1;
+    return new Date(bv) - new Date(av);
+  });
+
+  body.innerHTML = '<div class="table-scroll"><table class="responsive-table">'
+    + '<thead><tr><th>Recipient</th><th>Status</th><th>Sent</th><th class="col-num">Opens</th><th>First Opened</th><th>Read Span</th></tr></thead><tbody>'
+    + rows.map(function(r){
+        const eff = emLogEffectiveStatus_(r);
+        const trAttrs = r.trackingId
+          ? ' class="clickable" onclick="emShowRecipientDetail_(\'' + esc_(r.trackingId) + '\')"'
+          : '';
+        return '<tr' + trAttrs + '>'
+          + '<td data-label="Recipient"><span class="email-row-subject">' + esc_(r.displayName || r.email || '—') + '</span>'
+            + (r.displayName && r.email ? '<span class="email-row-snippet">' + esc_(r.email) + '</span>' : '') + '</td>'
+          + '<td data-label="Status"><span class="broadcast-status ' + emStatusClass_(eff === 'Opened' ? 'sent' : eff) + '">' + esc_(eff) + '</span>'
+            + (r.error ? '<span class="email-row-snippet">' + esc_(r.error) + '</span>' : '') + '</td>'
+          + '<td data-label="Sent">' + esc_(r.timestamp || '—') + '</td>'
+          + '<td data-label="Opens" class="col-num">' + (Number(r.openCount) || 0) + '</td>'
+          + '<td data-label="First Opened">' + esc_(r.openedAt || '—') + '</td>'
+          + '<td data-label="Read Span">' + esc_(emDurationBetween_(r.openedAt, r.lastOpenedAt, r.openCount)) + '</td>'
+        + '</tr>';
+      }).join('')
+    + '</tbody></table></div>';
+}
+
+function emShowLogList_(){
+  document.getElementById('emLogTitle').textContent = 'Send log';
+  document.getElementById('emLogListPane').style.display = '';
+  document.getElementById('emLogDetailPane').style.display = 'none';
+}
+
+/** Recipient detail: status summary + full open history, fetched fresh
+ *  from Email Open Log (ec_getOpenHistory) — the summary row alone only
+ *  carries first/last/count, not every individual open timestamp. */
+function emShowRecipientDetail_(trackingId){
+  const r = emCurrentLog.filter(function(x){ return x.trackingId === trackingId; })[0];
+  if(!r) return;
+
+  document.getElementById('emLogTitle').textContent = r.displayName || r.email || 'Recipient';
+  document.getElementById('emLogListPane').style.display = 'none';
+  const pane = document.getElementById('emLogDetailPane');
+  pane.style.display = '';
+
+  const eff = emLogEffectiveStatus_(r);
+  const detailBody = document.getElementById('emLogDetailBody');
+  detailBody.innerHTML = ''
+    + emDetailRow_('Email', r.email || '—')
+    + emDetailRow_('Status', eff)
+    + emDetailTimeRow_('Sent', r.timestamp || '—')
+    + emDetailTimeRow_('First Opened', r.openedAt || '—')
+    + emDetailTimeRow_('Last Opened', r.lastOpenedAt || '—')
+    + emDetailRow_('Read Span', emDurationBetween_(r.openedAt, r.lastOpenedAt, r.openCount))
+    + emDetailRow_('Open Count', String(Number(r.openCount) || 0))
+    + emDetailRow_('Tracking ID', r.trackingId || '—')
+    + '<div class="card-title" style="margin:16px 0 10px;">Open History</div>'
+    + '<div id="emOpenHistoryList" class="center-col"><div class="spinner"></div></div>';
+
+  google.script.run.withSuccessHandler(function(res){
+    const el = document.getElementById('emOpenHistoryList');
+    if(!el) return;
+    if(!res || !res.ok){ el.innerHTML = '<div class="empty-state">Could not load open history.</div>'; return; }
+    const history = res.history || [];
+    if(!history.length){ el.innerHTML = '<div class="empty-state">No opens detected yet.</div>'; return; }
+    el.innerHTML = '<ul style="margin:0;padding-left:20px;">'
+      + history.map(function(ts){ return '<li>' + esc_(ts) + '</li>'; }).join('')
+      + '</ul>';
+  }).withFailureHandler(function(){
+    const el = document.getElementById('emOpenHistoryList');
+    if(el) el.innerHTML = '<div class="empty-state">Something went wrong loading open history.</div>';
+  }).ec_getOpenHistory(getSession(), trackingId);
+}
+
+function emCloseLog(){
+  document.getElementById('emLogOverlay').style.display = 'none';
+  emCurrentLog = [];
+  emCurrentLogCampaignId = null;
+  emRestoreFocus_();
+}
+</script>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// COMPOSER — theme, audience, payload, preview, draft, send
+// ══════════════════════════════════════════════════════════════
+let emLastFocus_ = null;
+function emRestoreFocus_(){
+  if(emLastFocus_ && typeof emLastFocus_.focus === 'function'){ try{ emLastFocus_.focus(); }catch(e){} }
+  emLastFocus_ = null;
+}
+
+function emSetMsg_(text, kind){
+  const el = document.getElementById('emSendMsg');
+  if(!el) return;
+  el.textContent = text || '';
+  el.className = text ? ('auth-msg show ' + (kind || 'err')) : 'auth-msg';
+}
+
+function emShowThemeInfo_(){
+  const info = document.getElementById('emThemeInfo');
+  if(!info) return;
+  const key = document.getElementById('emTheme').value;
+  const t = emThemesCache.filter(function(x){ return x.key === key; })[0];
+  info.textContent = t
+    ? ('Theme: ' + t.emoji + ' ' + t.label + ' — the server applies this branding around your message.')
+    : (emThemesCache.length ? 'Unknown theme selected.' : 'Theme list not loaded yet.');
+}
+
+function emApplyThemeDefaults(){
+  const key = document.getElementById('emTheme').value;
+  const t = emThemesCache.filter(function(x){ return x.key === key; })[0];
+  emShowThemeInfo_();
+  if(!t) return;
+
+  document.getElementById('emHeadline').value = t.defaultHeadline || '';
+  document.getElementById('emGreeting').value = t.defaultGreeting || '';
+  emSetBulletsText_(t.defaultBullets || '');
+  document.getElementById('emSignoff').value  = t.defaultSignoff || '';
+  document.getElementById('emSubject').value  = t.label + ' from Inner SPARC Realty';
+
+  // The theme's default body seeds the rich editor as ordinary paragraphs.
+  const paras = String(t.defaultBody || '').split(/\n\s*\n/).filter(function(p){ return p.trim(); });
+  emSetEditorHtml_(paras.map(function(p){ return '<p>' + esc_(p) + '</p>'; }).join('') || '<p><br></p>');
+  emUpdateCounters();
+}
+
+function emUpdateRecipientValueVisibility(){
+  const mode = document.getElementById('emRecipientMode').value;
+  document.getElementById('emRoleField').style.display   = (mode === 'role') ? '' : 'none';
+  document.getElementById('emEmailsField').style.display = (mode === 'specific') ? '' : 'none';
+  if(mode === 'specific'){
+    const searchEl = document.getElementById('emRecipientSearch');
+    if(searchEl) searchEl.value = '';
+    emLoadRecipientCheckboxes_();
+  }
+  emQueueRecipientPreview_();
+}
+
+let emRecipientPreviewTimer = null;
+
+/** Sets the counter text immediately (e.g. "Counting…", a validation
+ *  message) without touching the debounce timer. */
+function emSetRecipientPreviewText_(text){
+  const el = document.getElementById('emRecipientPreviewText');
+  if(el) el.textContent = text;
+}
+
+/** Debounced auto-recount: called on every audience-affecting change
+ *  (mode select, role select, each checkbox toggle) so the recipient
+ *  count is always shown live, with no button click required. Debounced
+ *  so rapidly checking several boxes doesn't fire a request per click. */
+function emQueueRecipientPreview_(){
+  const mode = document.getElementById('emRecipientMode').value;
+  const value = emGetRecipientValue();
+
+  if(mode !== 'all' && !String(value || '').trim()){
+    clearTimeout(emRecipientPreviewTimer);
+    emSetRecipientPreviewText_(mode === 'role'
+      ? 'Choose a role to see the recipient count.'
+      : 'Select at least one recipient to see the count.');
+    return;
+  }
+
+  emSetRecipientPreviewText_('Counting…');
+  clearTimeout(emRecipientPreviewTimer);
+  emRecipientPreviewTimer = setTimeout(function(){
+    google.script.run.withSuccessHandler(function(res){
+      if(!res || !res.ok){ emSetRecipientPreviewText_((res && res.error) || 'Could not count recipients.'); return; }
+      emSetRecipientPreviewText_(res.count + ' recipient' + (res.count === 1 ? '' : 's') + ' will receive this broadcast.');
+    }).withFailureHandler(function(){
+      emSetRecipientPreviewText_('Recipient count failed. It will retry the next time you change the audience.');
+    }).ec_previewRecipients(getSession(), mode, value);
+  }, 400);
+}
+
+function emOnRecipientCheckboxChange_(checkbox){
+  const row = checkbox.closest('.email-recipient-row');
+  if(row) row.classList.toggle('is-checked', checkbox.checked);
+  emQueueRecipientPreview_();
+}
+
+function emGetRecipientValue(){
+  const mode = document.getElementById('emRecipientMode').value;
+  if(mode === 'role')     return document.getElementById('emRecipientRole').value;
+  if(mode === 'specific') return emGetCheckedRecipientEmails_();
+  return '';
+}
+
+let emUsersCache = null;
+
+function emLoadRecipientCheckboxes_(){
+  const container = document.getElementById('emRecipientCheckboxList');
+  const hint = document.getElementById('emRecipientCheckboxHint');
+  if(!container) return;
+  if(emUsersCache){ emRenderRecipientCheckboxes_(); return; }
+  container.innerHTML = '<div class="center-col"><div class="spinner" style="width:22px;height:22px;"></div></div>';
+  google.script.run.withSuccessHandler(function(res){
+    if(!res || !res.ok){
+      container.innerHTML = '';
+      if(hint) hint.textContent = (res && res.error) || 'Could not load agents.';
+      return;
+    }
+    emUsersCache = (res.users || []).filter(function(u){ return String(u.email || '').trim(); });
+    emRenderRecipientCheckboxes_();
+  }).withFailureHandler(function(){
+    container.innerHTML = '';
+    if(hint) hint.textContent = 'Could not load agents. Please try again.';
+  }).pa_adminListUsers(getSession());
+}
+
+/** Renders (or re-renders) the checkbox list, honoring the current search
+ *  term. Kept separate from emRenderRecipientCheckboxes_ so filtering
+ *  never needs a server round-trip — the full user list stays cached in
+ *  emUsersCache and only the DOM is redrawn. */
+function emFilterRecipientCheckboxes(){
+  const container = document.getElementById('emRecipientCheckboxList');
+  const hint = document.getElementById('emRecipientCheckboxHint');
+  if(!container) return;
+  if(!emUsersCache || !emUsersCache.length){
+    container.innerHTML = '<div class="field-hint" style="padding:10px 14px;">No portal users found.</div>';
+    if(hint) hint.textContent = '';
+    return;
+  }
+
+  const searchEl = document.getElementById('emRecipientSearch');
+  const term = String((searchEl && searchEl.value) || '').trim().toLowerCase();
+
+  // Preserve any boxes the admin already checked that are hidden by the
+  // current filter — otherwise narrowing the search and then sending
+  // would silently drop previously-selected recipients.
+  const checkedNow = {};
+  container.querySelectorAll('input[type="checkbox"]:checked').forEach(function(b){
+    checkedNow[String(b.value).toLowerCase()] = true;
+  });
+
+  const filtered = term
+    ? emUsersCache.filter(function(u){
+        const label = (u.canonicalName && String(u.canonicalName).trim()) || (u.aliasesCsv ? (u.aliasesCsv.split(';')[0].trim() || u.email) : u.email);
+        return String(label).toLowerCase().indexOf(term) !== -1
+            || String(u.email).toLowerCase().indexOf(term) !== -1
+            || String(u.canonicalName || '').toLowerCase().indexOf(term) !== -1
+            || String(u.aliasesCsv || '').toLowerCase().indexOf(term) !== -1;
+      })
+    : emUsersCache;
+
+  if(!filtered.length){
+    container.innerHTML = '<div class="email-recipient-no-match">No matches for &ldquo;' + esc_(term) + '&rdquo;.</div>';
+    if(hint) hint.textContent = '0 of ' + emUsersCache.length + ' portal users shown.';
+    return;
+  }
+
+  container.innerHTML = filtered.map(function(u){
+    const label = (u.canonicalName && String(u.canonicalName).trim()) || (u.aliasesCsv ? (u.aliasesCsv.split(';')[0].trim() || u.email) : u.email);
+    const isChecked = checkedNow[String(u.email).toLowerCase()] ? ' checked' : '';
+    return '<label class="email-recipient-row' + (isChecked ? ' is-checked' : '') + '">'
+      + '<input type="checkbox" value="' + esc_(u.email) + '"' + isChecked + ' onchange="emOnRecipientCheckboxChange_(this)">'
+      + '<span class="email-recipient-info">'
+        + '<span class="email-recipient-name">' + esc_(label) + '</span>'
+        + '<span class="email-recipient-email">' + esc_(u.email) + '</span>'
+      + '</span>'
+      + '</label>';
+  }).join('');
+
+  if(hint){
+    hint.textContent = term
+      ? (filtered.length + ' of ' + emUsersCache.length + ' portal users match.')
+      : (emUsersCache.length + ' portal user' + (emUsersCache.length === 1 ? '' : 's') + ' available.');
+  }
+}
+
+function emRenderRecipientCheckboxes_(){
+  // Full redraw from scratch — used after a fresh server load, and after
+  // reopening a Draft. Clear the search box so the admin sees the full
+  // list (their saved recipientValue will still be checked below).
+  const searchEl = document.getElementById('emRecipientSearch');
+  if(searchEl) searchEl.value = '';
+  emFilterRecipientCheckboxes();
+}
+
+function emGetCheckedRecipientEmails_(){
+  const boxes = document.querySelectorAll('#emRecipientCheckboxList input[type="checkbox"]:checked');
+  return Array.prototype.slice.call(boxes).map(function(b){ return b.value; }).join(';');
+}
+
+function emSetCheckedRecipients_(value){
+  const wanted = String(value || '').split(';').map(function(s){ return s.trim().toLowerCase(); }).filter(Boolean);
+  const apply = function(){
+    const boxes = document.querySelectorAll('#emRecipientCheckboxList input[type="checkbox"]');
+    boxes.forEach(function(b){ b.checked = wanted.indexOf(String(b.value).toLowerCase()) !== -1; });
+  };
+  if(emUsersCache){ emRenderRecipientCheckboxes_(); apply(); return; }
+  google.script.run.withSuccessHandler(function(res){
+    if(res && res.ok){
+      emUsersCache = (res.users || []).filter(function(u){ return String(u.email || '').trim(); });
+      emRenderRecipientCheckboxes_();
+      apply();
+    }
+  }).pa_adminListUsers(getSession());
+}
+
+function emAudienceLabel_(mode, value){
+  if(mode === 'role') return 'Role: ' + (String(value || '').trim() || '—');
+  if(mode === 'specific'){
+    const n = String(value || '').split(';').map(function(x){ return x.trim(); }).filter(Boolean).length;
+    return n + ' specific recipient' + (n === 1 ? '' : 's');
+  }
+  return 'Everyone (all portal users)';
+}
+
+function emPreviewRecipients(btn){
+  const mode  = document.getElementById('emRecipientMode').value;
+  const value = emGetRecipientValue();
+  const el    = document.getElementById('emRecipientPreview');
+  el.textContent = 'Counting…';
+  if(btn) setBtnBusy_(btn, true, '<span class="btn-spin"></span> Counting…');
+
+  google.script.run.withSuccessHandler(function(res){
+    if(btn) setBtnBusy_(btn, false);
+    if(!res || !res.ok){ el.textContent = (res && res.error) || 'Could not count recipients.'; return; }
+    el.textContent = res.count + ' recipient' + (res.count === 1 ? '' : 's') + ' will receive this broadcast.';
+  }).withFailureHandler(function(){
+    if(btn) setBtnBusy_(btn, false);
+    el.textContent = 'Recipient count failed. Please try again.';
+  }).ec_previewRecipients(getSession(), mode, value);
+}
+
+// The client sends ONLY selection parameters — never a resolved recipient
+// list. ec_resolveRecipients_() on the server stays the sole authority.
+function emCollectPayload(){
+  return {
+    campaignId:     emCurrentDraftId || '',
+    subject:        document.getElementById('emSubject').value.trim(),
+    theme:          document.getElementById('emTheme').value,
+    recipientMode:  document.getElementById('emRecipientMode').value,
+    recipientValue: emGetRecipientValue(),
+    headline:       document.getElementById('emHeadline').value.trim(),
+    greeting:       document.getElementById('emGreeting').value.trim(),
+    bodyHtml:       emGetBodyHtml(),
+    bodyText:       emGetBodyText(),
+    bullets:        emGetBulletsText_(),
+    signoff:        document.getElementById('emSignoff').value.trim(),
+    attachments:    emAttachments.slice()
+  };
+}
+
+function emValidatePayload_(payload, requireBody){
+  if(!payload.subject) return 'Please enter a subject line.';
+  if(payload.subject.length > 250) return 'The subject line is too long (250 characters maximum).';
+  if(payload.recipientMode !== 'all' && !String(payload.recipientValue || '').trim()){
+    return payload.recipientMode === 'role'
+      ? 'Please choose a role for this broadcast.'
+      : 'Please enter at least one recipient email address.';
+  }
+  if(requireBody && !payload.bodyText.trim() && !payload.bodyHtml.replace(/<[^>]*>/g, '').trim()){
+    return 'The message body is empty.';
+  }
+  return '';
+}
+
+// ── Local preview — mirrors ec_buildCampaignHtml_'s shell so the admin
+// sees the same branded frame the server will actually send. ──
+function emPreviewHtml(payloadOverride){
+  const p = payloadOverride || emCollectPayload();
+  const t = emThemesCache.filter(function(x){ return x.key === p.theme; })[0] || emThemesCache[0];
+
+  const LOGO_URL   = 'https://i.imgur.com/FGrfu8O.png';
+  const FOOTER_URL = 'https://i.imgur.com/j4iFl10.png';
+
+  const greeting = (p.greeting || 'Kumusta ka na, [Agent Name]?')
+    .replace(/\[Agent Name\]/g, 'Juan Dela Cruz');
+
+  const bodyHtml = emNormalizeEmailHtml_(p.bodyHtml).replace(/\[Agent Name\]/g, 'Juan Dela Cruz');
+
+  const panelsHtml = emBuildPanelsHtmlFromText_(p.bullets);
+
+  const signoffParas = emRenderTextWithImages_(p.signoff, 'Juan Dela Cruz');
+  const subtitle = p.headline || (t && t.defaultHeadline) || 'An Update From The Team';
+  const isFestive = !!(t && t.festive);
+
+  const html = '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>' + esc_(p.subject) + '</title>'
+    + '<style>'
+    +   'body{margin:0;padding:40px 12px;background:#F3F4FA;font-family:Montserrat,Arial,sans-serif;color:#2B2B33;}'
+    +   '.email{max-width:620px;margin:0 auto;background:#FFFFFF;border-radius:14px;overflow:hidden;box-shadow:0 2px 10px rgba(34,38,137,0.06);}'
+    +   '.header{text-align:center;padding:30px 32px 22px;}'
+    +   '.logo-lockup img{height:110px;width:auto;display:block;margin:0 auto;}'
+    +   '.header h1{font-size:21px;font-weight:700;color:#222689;margin:14px 0 3px;}'
+    +   '.header .subtitle{font-size:14px;color:#8B8B98;margin:0;}'
+    +   '.header .snowflakes{margin-top:10px;font-size:15px;letter-spacing:6px;color:#C9A24B;}'
+    +   '.rule{height:3px;background:#1C7D38;}'
+    +   '.content{padding:34px 36px 8px;}'
+    +   '.content p{margin:0 0 18px;font-size:16px;line-height:1.75;}'
+    +   '.headline{font-size:25px;font-weight:700;color:#1B1B22;margin:0 0 8px;line-height:1.3;}'
+    +   '.panels{padding:6px 32px 6px;}'
+    +   '.panel{background:#F6F7FB;border-left:4px solid #222689;border-radius:6px;padding:16px 18px;margin-bottom:14px;}'
+    +   '.panel.green{border-left-color:#1C7D38;}.panel.orange{border-left-color:#FF9132;}'
+    +   '.panel h3{font-size:17px;font-weight:700;color:#1B1B22;margin:0 0 5px;}'
+    +   '.note{padding:0 32px 26px;font-size:13px;line-height:1.65;color:#9A9AA6;border-top:1px solid #EDEDF3;padding-top:20px;margin:0 32px;}'
+    +   '.footer{text-align:center;border-top:1px solid #EDEDF3;}'
+    + '</style></head><body><div class="email">'
+    + (isFestive ? '<div style="text-align:center;padding:10px 0;font-size:20px;letter-spacing:10px;line-height:1;background:#FAFAFC;">🔴 🟢 🟠 🟡 🔴 🟢 🟠 🟡 🔴 🟢 🟠</div>' : '')
+    + '<div class="header"><div class="logo-lockup"><img src="' + LOGO_URL + '" alt="Inner SPARC"></div>'
+    +   '<h1>Inner SPARC Realty Corporation</h1><p class="subtitle">' + esc_(subtitle) + '</p>'
+    +   (isFestive ? '<div class="snowflakes">❄ ✦ ❄</div>' : '') + '</div>'
+    + '<div class="rule"></div>'
+    + '<div class="content"><p class="headline">' + esc_(greeting) + '</p>' + bodyHtml + '</div>'
+    + (panelsHtml ? '<div class="panels">' + panelsHtml + '</div>' : '')
+    + (signoffParas ? '<div class="content" style="padding-top:6px;">' + signoffParas + '</div>' : '')
+    + '<p class="note">If you have questions about any of these updates, please coordinate with your assigned team lead or the Inner SPARC Realty support team.</p>'
+    + (isFestive ? '<div style="text-align:center;padding:10px 0;font-size:20px;letter-spacing:10px;line-height:1;background:#FAFAFC;">🔴 🟢 🟠 🟡 🔴 🟢 🟠 🟡 🔴 🟢 🟠</div>' : '')
+    + '<div class="footer"><img src="' + FOOTER_URL + '" alt="Inner SPARC footer" style="width:100%;height:auto;display:block;"></div>'
+    + '</div></body></html>';
+
+  emLastFocus_ = document.activeElement;
+  const frame = document.getElementById('emailPreviewFrame');
+  document.getElementById('emailPreviewOverlay').style.display = 'flex';
+  frame.srcdoc = html;
+}
+
+// Opens the full branded email preview for an EXISTING broadcast
+// (from Broadcast History) — no need to create a new draft first.
+function emPreviewCampaign(campaignId){
+  const c = emCampaigns.filter(function(x){ return String(x.campaignId) === String(campaignId); })[0];
+  if(!c){ showPortalToast_('Could not find that broadcast.'); return; }
+
+  const bodyHtml = c.bodyHtml || String(c.bodyText || '')
+    .split(/\n\s*\n/)
+    .filter(function(x){ return x.trim(); })
+    .map(function(x){ return '<p>' + esc_(x) + '</p>'; })
+    .join('');
+
+  emPreviewHtml({
+    subject:  c.subject,
+    theme:    c.theme,
+    headline: c.headline,
+    greeting: c.greeting,
+    bodyHtml: bodyHtml,
+    bullets:  c.bullets,
+    signoff:  c.signoff
+  });
+}
+
+function closeEmailPreview(){
+  document.getElementById('emailPreviewOverlay').style.display = 'none';
+  emRestoreFocus_();
+}
+
+function emIsoToLocalInputValue_(iso){
+  const d = new Date(iso);
+  if(isNaN(d.getTime())) return '';
+  const pad = function(n){ return String(n).padStart(2, '0'); };
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+function emScheduleCampaign(btn){
+  if(btn && btn.dataset.busy === '1') return;
+  const payload = emCollectPayload();
+  const invalid = emValidatePayload_(payload, true);
+  if(invalid){ emSetMsg_(invalid); return; }
+
+  const raw = document.getElementById('emScheduleAt').value;
+  if(!raw){ emSetMsg_('Choose a date and time to schedule this broadcast, or use "Review & Send" to send now.'); return; }
+  const when = new Date(raw);
+  if(isNaN(when.getTime())){ emSetMsg_('That date/time is not valid.'); return; }
+  if(when.getTime() <= Date.now() + 60000){ emSetMsg_('Please choose a time at least a minute in the future.'); return; }
+
+  emSetMsg_('');
+  setBtnBusy_(btn, true, '<span class="btn-spin"></span> Scheduling…');
+
+  google.script.run.withSuccessHandler(function(res){
+    setBtnBusy_(btn, false);
+    if(!res || res.ok !== true){ emSetMsg_((res && res.error) || 'Could not schedule this broadcast.'); return; }
+    emCurrentDraftId = res.campaignId;
+    document.getElementById('emComposerTitle').textContent = 'Scheduled — ' + res.campaignId;
+    if(res.warning){ emSetMsg_(res.warning); }
+    else { emSetMsg_('Scheduled to send on ' + res.scheduledFor + '.', 'ok'); }
+    showPortalToast_('Broadcast scheduled for ' + res.scheduledFor);
+    emLoadHistory();
+  }).withFailureHandler(function(){
+    setBtnBusy_(btn, false);
+    emSetMsg_('Could not schedule this broadcast — the server did not respond. Please try again.');
+  }).ec_scheduleCampaign(getSession(), payload, when.toISOString());
+}
+
+function emDeleteDraft(campaignId){
+  if(!confirm('Delete this draft permanently? This cannot be undone.')) return;
+  google.script.run.withSuccessHandler(function(res){
+    if(!res || !res.ok){ showPortalToast_((res && res.error) || 'Could not delete that draft.'); return; }
+    showPortalToast_('Draft deleted.');
+    emCloseDetail();
+    emLoadHistory();
+  }).withFailureHandler(function(){ showPortalToast_('Could not delete that draft.'); })
+    .ec_deleteDraft(getSession(), campaignId);
+}
+
+function emCancelSchedule(campaignId){
+  if(!confirm('Cancel this scheduled broadcast? It will be kept as an editable draft instead.')) return;
+  google.script.run.withSuccessHandler(function(res){
+    if(!res || !res.ok){ showPortalToast_((res && res.error) || 'Could not cancel that schedule.'); return; }
+    showPortalToast_('Scheduled broadcast canceled — kept as a draft.');
+    emCloseDetail();
+    emLoadHistory();
+  }).withFailureHandler(function(){ showPortalToast_('Could not cancel that schedule.'); })
+    .ec_cancelScheduledCampaign(getSession(), campaignId);
+}
+
+// ── Drafts (real server rows, never localStorage) ───────────
+function emSaveDraft(btn){
+  if(btn && btn.dataset.busy === '1') return; // prevents double-save
+  const payload = emCollectPayload();
+  const invalid = emValidatePayload_(payload, false);
+  if(invalid){ emSetMsg_(invalid); return; }
+
+  emSetMsg_('');
+  if(btn) setBtnBusy_(btn, true, '<span class="btn-spin"></span> Saving…');
+
+  google.script.run.withSuccessHandler(function(res){
+    if(btn) setBtnBusy_(btn, false);
+    if(!res || res.ok !== true){ emSetMsg_((res && res.error) || 'Could not save this draft.'); return; }
+    emCurrentDraftId = res.campaignId;
+    document.getElementById('emComposerTitle').textContent = 'Edit Draft — ' + res.campaignId;
+    emSetMsg_('Draft saved. You can reopen it from Broadcast History at any time.', 'ok');
+    showPortalToast_('Draft saved');
+    emLoadHistory();
+  }).withFailureHandler(function(){
+    if(btn) setBtnBusy_(btn, false);
+    emSetMsg_('The draft could not be saved — the server did not respond. Please try again.');
+  }).ec_saveDraft(getSession(), payload);
+}
+
+// ── Confirmation (real server-resolved count) ───────────────
+function emOpenSendConfirmation(btn){
+  const payload = emCollectPayload();
+  const invalid = emValidatePayload_(payload, true);
+  if(invalid){ emSetMsg_(invalid); return; }
+
+  emSetMsg_('');
+  if(btn) setBtnBusy_(btn, true, '<span class="btn-spin"></span> Checking audience…');
+
+  google.script.run.withSuccessHandler(function(res){
+    if(btn) setBtnBusy_(btn, false);
+    if(!res || !res.ok){ emSetMsg_((res && res.error) || 'Could not resolve the audience.'); return; }
+    if(!res.count){ emSetMsg_('That audience resolves to zero recipients, so there is nothing to send.'); return; }
+
+    emConfirmContext = {
+      payload: payload,
+      count: res.count,
+      audienceLabel: emAudienceLabel_(payload.recipientMode, payload.recipientValue)
+    };
+
+    document.getElementById('emConfirmMsg').className = 'auth-msg';
+    document.getElementById('emConfirmBody').innerHTML =
+        emDetailRow_('Audience', emConfirmContext.audienceLabel)
+      + emDetailRow_('Recipients', String(res.count))
+      + emDetailRow_('Subject', payload.subject);
+    const sendBtn = document.getElementById('emConfirmSendBtn');
+    sendBtn.style.display = '';
+    setBtnBusy_(sendBtn, false);
+    emLastFocus_ = document.activeElement;
+    document.getElementById('emConfirmOverlay').style.display = 'flex';
+    document.getElementById('emConfirmSendBtn').focus();
+  }).withFailureHandler(function(){
+    if(btn) setBtnBusy_(btn, false);
+    emSetMsg_('The audience could not be checked — the server did not respond. Nothing was sent.');
+  }).ec_previewRecipients(getSession(), payload.recipientMode, payload.recipientValue);
+}
+
+function emCloseConfirm(){
+  if(emSending) return; // never close mid-send
+  document.getElementById('emConfirmOverlay').style.display = 'none';
+  emConfirmContext = null;
+  emRestoreFocus_();
+}
+
+function emConfirmMsg_(text, kind){
+  const el = document.getElementById('emConfirmMsg');
+  el.textContent = text || '';
+  el.className = text ? ('auth-msg show ' + (kind || 'err')) : 'auth-msg';
+}
+
+// ── Send — ec_sendCampaign remains the only sending authority ──
+function emSendCampaign(btn){
+  if(emSending || !emConfirmContext) return;
+  if(btn && btn.dataset.busy === '1') return;
+
+  emSending = true;
+  setBtnBusy_(btn, true, '<span class="btn-spin"></span> Sending…');
+  emConfirmMsg_('Sending broadcast…', 'ok');
+
+  google.script.run.withSuccessHandler(function(res){
+    emSending = false;
+    setBtnBusy_(btn, false);
+
+    // Success is claimed ONLY on an explicit ok === true response.
+    if(!res || res.ok !== true){
+      emConfirmMsg_((res && res.error) || 'The broadcast was not sent. The server returned an unexpected response.');
+      return;
+    }
+
+    const recipients = Number(res.recipientCount) || 0;
+    const sent       = Number(res.successCount) || 0;
+    const failed     = Number(res.failureCount) || 0;
+    const partial    = failed > 0 && sent > 0;
+
+    document.getElementById('emConfirmMsg').className = 'auth-msg';
+    document.getElementById('emConfirmBody').innerHTML =
+      '<div class="email-result ' + (failed === 0 ? 'ok' : (partial ? 'partial' : 'err')) + '">'
+        + (failed === 0
+            ? 'Broadcast sent.'
+            : (partial ? 'Partially sent — some recipients did not receive this broadcast.' : 'Delivery failed for every recipient.'))
+      + '</div>'
+      + emDetailRow_('Recipients', String(recipients))
+      + emDetailRow_('Sent', String(sent))
+      + emDetailRow_('Failed', String(failed))
+      + emDetailRow_('Status', res.status || '—');
+
+    document.getElementById('emConfirmSendBtn').style.display = 'none';
+    emConfirmContext = null;
+    emCurrentDraftId = null;
+    emClearAttachments_();
+    showPortalToast_(failed === 0 ? 'Broadcast sent to ' + sent + ' recipients' : 'Sent ' + sent + ' of ' + recipients + ' — ' + failed + ' failed');
+    emLoadHistory();
+  }).withFailureHandler(function(err){
+    // A failure handler means we never got a valid result — never report success.
+    emSending = false;
+    setBtnBusy_(btn, false);
+    emConfirmMsg_('The send could not be completed: ' + (err && err.message ? err.message : 'the server did not respond') + '. Check Broadcast History before retrying.');
+    emLoadHistory();
+  }).ec_sendCampaign(getSession(), emConfirmContext.payload);
+}
+</script>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// RICH-TEXT EDITOR
+//
+// COMMAND STRATEGY: browser-native editing primitives
+// (document.execCommand) are used for the commands where every engine
+// still implements them reliably — inline marks, lists, alignment,
+// indentation, block formatting — because they handle selection,
+// partial-node splitting and list semantics far better than hand-rolled
+// DOM surgery. Everything execCommand does badly or not at all (point
+// font sizes, line spacing, checklists, tables, dividers, case
+// transforms, find & replace) is implemented directly against the DOM,
+// and every command has a fallback path. Undo/redo uses our own
+// snapshot stack rather than the browser's, so it stays correct even
+// when a command took the custom path.
+// ══════════════════════════════════════════════════════════════
+let emUndoStack = [];
+let emRedoStack = [];
+let emHistoryTimer = null;
+const EM_HISTORY_LIMIT = 80;
+
+function emEditorEl(){ return document.getElementById('emEditor'); }
+
+function emInitEditor(){
+  if(emEditorReady) return;
+  const ed = emEditorEl();
+  if(!ed) return;
+  emEditorReady = true;
+
+  // Numeric point sizes, 8–36pt.
+  const sizeSel = document.getElementById('emFontSize');
+  for(let pt = 8; pt <= 36; pt++){
+    const o = document.createElement('option');
+    o.value = String(pt); o.textContent = pt + 'pt';
+    sizeSel.appendChild(o);
+  }
+
+  try{ document.execCommand('styleWithCSS', false, true); }catch(e){}
+
+  if(!ed.innerHTML.trim()) ed.innerHTML = '<p><br></p>';
+
+  ed.addEventListener('input', function(){
+    clearTimeout(emHistoryTimer);
+    emHistoryTimer = setTimeout(function(){ emSaveEditorHistory(true); }, 400);
+    emUpdateCounters();
+  });
+  ed.addEventListener('keydown', function(e){
+    const key = String(e.key || '').toLowerCase();
+    if((e.ctrlKey || e.metaKey) && key === 'z'){ e.preventDefault(); e.shiftKey ? emRedo() : emUndo(); }
+    else if((e.ctrlKey || e.metaKey) && key === 'y'){ e.preventDefault(); emRedo(); }
+  });
+  // Pasted images are uploaded (real hosted URL). Pasted markup is untrusted like any other input.
+  ed.addEventListener('paste', function(e){
+    const cd = e.clipboardData;
+    if(!cd) return;
+
+    // 1) If the clipboard carries image file(s), upload them instead of pasting the HTML <img>.
+    const imgFiles = [];
+    Array.prototype.slice.call(cd.items || []).forEach(function(it){
+      if(it.kind === 'file' && /^image\//i.test(it.type)){
+        const f = it.getAsFile();
+        if(f) imgFiles.push(f);
+      }
+    });
+    if(imgFiles.length){
+      e.preventDefault();
+      emRememberCaret_();          // remember where to insert
+      emUploadImageFiles_(imgFiles);
+      return;
+    }
+
+    // 2) Otherwise, normal sanitized HTML paste.
+    const html = cd.getData('text/html');
+    if(!html) return;
+    e.preventDefault();
+    emSaveEditorHistory();
+    emInsertHtmlAtCaret(emSanitizeHtml_(html));
+    emAfterEdit();
+  });
+  ed.addEventListener('keyup', emSyncToolbarState_);
+  ed.addEventListener('mouseup', emSyncToolbarState_);
+
+  // Keeps the editor selection alive while a toolbar control is pressed.
+  const tb = document.getElementById('emToolbar');
+  tb.addEventListener('mousedown', function(e){
+    if(e.target.closest('input, select')) return;
+    e.preventDefault();
+  });
+
+  emBuildTableGrid_();
+  emBuildCharGrid_();
+  emInitImageTools_();
+  emSaveEditorHistory(true);
+  emUpdateCounters();
+}
+
+function emFocusEditor(){
+  const ed = emEditorEl();
+  if(!ed) return;
+  const sel = window.getSelection();
+  if(!sel || sel.rangeCount === 0 || !ed.contains(sel.anchorNode)){
+    ed.focus();
+    const r = document.createRange();
+    r.selectNodeContents(ed);
+    r.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  } else {
+    ed.focus();
+  }
+}
+
+function emSetEditorHtml_(html){
+  const ed = emEditorEl();
+  if(!ed) return;
+  ed.innerHTML = emSanitizeHtml_(html) || '<p><br></p>';
+  emUndoStack = []; emRedoStack = [];
+  emSaveEditorHistory(true);
+  emUpdateCounters();
+}
+
+// ── HTML source view — lets an admin paste or write raw HTML/CSS
+// (e.g. copied from an external editor as plain text, which the
+// editor's paste handler can't otherwise interpret as markup) and have
+// it become real, rendered content in the message body. Whatever is
+// applied here goes through the exact same emSanitizeHtml_() pass as
+// every other path into the editor, and the server re-sanitizes again
+// via ec_sanitizeRichHtml_() before anything is stored or sent — this
+// is a convenience surface, not a bypass of either boundary. ──
+function emOpenHtmlSource(){
+  const ed = emEditorEl();
+  const input = document.getElementById('emHtmlSourceInput');
+  if(!ed || !input) return;
+  input.value = ed.innerHTML.trim() === '<p><br></p>' ? '' : ed.innerHTML;
+  emLastFocus_ = document.activeElement;
+  document.getElementById('emHtmlSourceOverlay').style.display = 'flex';
+  setTimeout(function(){ input.focus(); }, 0);
+}
+
+function emCloseHtmlSource(){
+  document.getElementById('emHtmlSourceOverlay').style.display = 'none';
+  emRestoreFocus_();
+}
+
+function emApplyHtmlSource(){
+  const input = document.getElementById('emHtmlSourceInput');
+  if(!input) return;
+  emSaveEditorHistory();
+  // Bake in the same inline styling the sent email will carry (colors,
+  // sizes, spacing) so the composer shows the real, stylized result
+  // immediately — not just whatever generic look the browser's default
+  // tag rendering happens to produce.
+  emSetEditorHtml_(emNormalizeEmailHtml_(input.value));
+  emAfterEdit();
+  emCloseHtmlSource();
+}
+
+function emSaveEditorHistory(collapse){
+  const ed = emEditorEl();
+  if(!ed) return;
+  const snapshot = ed.innerHTML;
+  if(emUndoStack.length && emUndoStack[emUndoStack.length - 1] === snapshot) return;
+  emUndoStack.push(snapshot);
+  if(emUndoStack.length > EM_HISTORY_LIMIT) emUndoStack.shift();
+  if(!collapse) emRedoStack = [];
+}
+
+function emAfterEdit(){
+  emRedoStack = [];
+  emUpdateCounters();
+  emSyncToolbarState_();
+  clearTimeout(emHistoryTimer);
+  emHistoryTimer = setTimeout(function(){ emSaveEditorHistory(true); }, 250);
+}
+
+function emUndo(){
+  const ed = emEditorEl();
+  if(!ed || emUndoStack.length < 2) return;
+  const current = emUndoStack.pop();
+  emRedoStack.push(current);
+  ed.innerHTML = emUndoStack[emUndoStack.length - 1];
+  emUpdateCounters();
+}
+
+function emRedo(){
+  const ed = emEditorEl();
+  if(!ed || !emRedoStack.length) return;
+  const next = emRedoStack.pop();
+  emUndoStack.push(next);
+  ed.innerHTML = next;
+  emUpdateCounters();
+}
+
+function emExecCommand(cmd, value){
+  const ed = emEditorEl();
+  if(!ed) return;
+  emFocusEditor();
+  emSaveEditorHistory();
+  let ok = false;
+  try{
+    try{ document.execCommand('styleWithCSS', false, true); }catch(e){}
+    ok = document.execCommand(cmd, false, (value === undefined ? null : value));
+  }catch(e){ ok = false; }
+  if(!ok) emCommandFallback_(cmd, value);
+  emAfterEdit();
+}
+
+/** Graceful fallbacks for the (rare) engines/contexts where a native
+ *  command is unavailable or refused. */
+function emCommandFallback_(cmd, value){
+  const inlineTags = { bold:'strong', italic:'em', underline:'u', strikeThrough:'s', superscript:'sup', subscript:'sub' };
+  if(inlineTags[cmd]){ emWrapSelectionWithTag_(inlineTags[cmd]); return; }
+
+  const aligns = { justifyLeft:'left', justifyCenter:'center', justifyRight:'right', justifyFull:'justify' };
+  if(aligns[cmd]){ emStyleBlocks_(function(b){ b.style.textAlign = aligns[cmd]; }); return; }
+
+  if(cmd === 'indent' || cmd === 'outdent'){
+    emStyleBlocks_(function(b){
+      const current = parseInt(b.style.marginLeft, 10) || 0;
+      const next = cmd === 'indent' ? current + 32 : Math.max(0, current - 32);
+      b.style.marginLeft = next ? next + 'px' : '';
+    });
+    return;
+  }
+  if(cmd === 'insertUnorderedList' || cmd === 'insertOrderedList'){
+    const tag = cmd === 'insertOrderedList' ? 'ol' : 'ul';
+    const text = emSelectionText_() || 'List item';
+    emInsertHtmlAtCaret('<' + tag + '><li>' + esc_(text) + '</li></' + tag + '>');
+    return;
+  }
+  if(cmd === 'unlink'){
+    emStyleBlocks_(function(b){
+      Array.prototype.slice.call(b.querySelectorAll('a')).forEach(function(a){
+        while(a.firstChild) a.parentNode.insertBefore(a.firstChild, a);
+        a.remove();
+      });
+    });
+    return;
+  }
+  if(cmd === 'removeFormat'){
+    const text = emSelectionText_();
+    if(text) emInsertHtmlAtCaret(esc_(text));
+  }
+}
+
+// ── Selection helpers ───────────────────────────────────────
+function emSelection_(){
+  const sel = window.getSelection();
+  const ed = emEditorEl();
+  if(!sel || sel.rangeCount === 0 || !ed || !ed.contains(sel.anchorNode)) return null;
+  return sel;
+}
+function emSelectionText_(){
+  const sel = emSelection_();
+  return sel ? String(sel.toString() || '') : '';
+}
+function emWrapSelectionWithTag_(tag){
+  const sel = emSelection_();
+  if(!sel || sel.isCollapsed) return false;
+  const el = document.createElement(tag);
+  const range = sel.getRangeAt(0);
+  try{ range.surroundContents(el); }
+  catch(e){ el.appendChild(range.extractContents()); range.insertNode(el); }
+  return true;
+}
+function emWrapSelectionWithStyle_(prop, val){
+  const sel = emSelection_();
+  if(!sel || sel.isCollapsed) return false;
+  const span = document.createElement('span');
+  span.style[prop] = val;
+  const range = sel.getRangeAt(0);
+  try{ range.surroundContents(span); }
+  catch(e){ span.appendChild(range.extractContents()); range.insertNode(span); }
+  const r = document.createRange();
+  r.selectNodeContents(span);
+  sel.removeAllRanges();
+  sel.addRange(r);
+  return true;
+}
+const EM_BLOCK_TAGS = { P:1, DIV:1, H1:1, H2:1, H3:1, H4:1, LI:1, BLOCKQUOTE:1, TD:1, TH:1, PRE:1 };
+function emBlocksInSelection_(){
+  const ed = emEditorEl();
+  const sel = emSelection_();
+  if(!ed) return [];
+  if(!sel) return [];
+  const range = sel.getRangeAt(0);
+  const all = Array.prototype.slice.call(ed.querySelectorAll('p,div,h1,h2,h3,h4,li,blockquote,td,th,pre'));
+  const hit = all.filter(function(b){ return range.intersectsNode ? range.intersectsNode(b) : true; });
+  if(hit.length) return hit;
+  let node = sel.anchorNode;
+  while(node && node !== ed && !(node.nodeType === 1 && EM_BLOCK_TAGS[node.tagName])) node = node.parentNode;
+  return (node && node !== ed) ? [node] : [ed];
+}
+function emStyleBlocks_(fn){
+  emBlocksInSelection_().forEach(fn);
+}
+
+// ── Font, size, colour ──────────────────────────────────────
+function emSetFontFamily(value){
+  if(!value) return;
+  emFocusEditor();
+  emSaveEditorHistory();
+  let ok = false;
+  try{
+    document.execCommand('styleWithCSS', false, true);
+    ok = document.execCommand('fontName', false, value);
+  }catch(e){ ok = false; }
+  if(!ok) emWrapSelectionWithStyle_('fontFamily', value);
+  emNormalizeFontTags_();
+  emAfterEdit();
+  document.getElementById('emFontFamily').value = '';
+}
+
+function emSetFontSize(pt){
+  if(!pt) return;
+  emFocusEditor();
+  emSaveEditorHistory();
+  // execCommand('fontSize') only accepts legacy 1–7 buckets, so size 7 is
+  // used as a marker and immediately rewritten to a real pt value below.
+  // That rewrite only works if the browser actually creates a <font
+  // size="7"> element to rewrite — but styleWithCSS is left ON everywhere
+  // else in this editor (see emExecCommand/emSetColor), and under
+  // styleWithCSS the browser instead applies a fixed CSS font-size for
+  // bucket "7" (the largest) directly, with no <font> tag left to find.
+  // That's why every size picked here was landing on "largest" and never
+  // shrinking: the replace loop below always found nothing to replace.
+  // Turning styleWithCSS off just for this command restores the legacy
+  // <font size="7"> tag so the swap below actually runs.
+  try{ document.execCommand('styleWithCSS', false, false); }catch(e){}
+  let ok = false;
+  try{ ok = document.execCommand('fontSize', false, '7'); }catch(e){ ok = false; }
+  if(ok){
+    Array.prototype.slice.call(emEditorEl().querySelectorAll('font[size="7"]')).forEach(function(f){
+      const span = document.createElement('span');
+      span.style.fontSize = pt + 'pt';
+      while(f.firstChild) span.appendChild(f.firstChild);
+      f.parentNode.replaceChild(span, f);
+    });
+  } else {
+    emWrapSelectionWithStyle_('fontSize', pt + 'pt');
+  }
+  // Restore styleWithCSS so every other command (color, bold, etc.) keeps
+  // getting inline CSS styling as before.
+  try{ document.execCommand('styleWithCSS', false, true); }catch(e){}
+  emNormalizeFontTags_();
+  emAfterEdit();
+  document.getElementById('emFontSize').value = '';
+}
+
+function emSetColor(cmd, value){
+  emFocusEditor();
+  emSaveEditorHistory();
+  let ok = false;
+  try{
+    document.execCommand('styleWithCSS', false, true);
+    ok = document.execCommand(cmd, false, value);
+  }catch(e){ ok = false; }
+  if(!ok) emWrapSelectionWithStyle_(cmd === 'foreColor' ? 'color' : 'backgroundColor', value);
+  emNormalizeFontTags_();
+  emAfterEdit();
+}
+
+/** Rewrites any legacy <font> element the browser produced into an
+ *  inline-styled <span>, so the stored HTML stays email-safe. */
+function emNormalizeFontTags_(){
+  const ed = emEditorEl();
+  if(!ed) return;
+  Array.prototype.slice.call(ed.querySelectorAll('font')).forEach(function(f){
+    const span = document.createElement('span');
+    if(f.getAttribute('face')) span.style.fontFamily = f.getAttribute('face');
+    if(f.getAttribute('color')) span.style.color = f.getAttribute('color');
+    const size = f.getAttribute('size');
+    if(size){
+      const map = { '1':'8pt', '2':'10pt', '3':'12pt', '4':'14pt', '5':'18pt', '6':'24pt', '7':'32pt' };
+      span.style.fontSize = map[size] || '12pt';
+    }
+    if(f.getAttribute('style')) span.setAttribute('style', span.getAttribute('style') + ';' + f.getAttribute('style'));
+    while(f.firstChild) span.appendChild(f.firstChild);
+    f.parentNode.replaceChild(span, f);
+  });
+}
+
+// ── Block style + line spacing ──────────────────────────────
+function emSetBlockStyle(tag){
+  if(!tag) return;
+  emFocusEditor();
+  emSaveEditorHistory();
+  let ok = false;
+  try{ ok = document.execCommand('formatBlock', false, '<' + tag.toLowerCase() + '>'); }catch(e){ ok = false; }
+  if(!ok){
+    emStyleBlocks_(function(b){
+      if(b === emEditorEl()) return;
+      const el = document.createElement(tag.toLowerCase());
+      while(b.firstChild) el.appendChild(b.firstChild);
+      b.parentNode.replaceChild(el, b);
+    });
+  }
+  emAfterEdit();
+}
+
+function emSetLineSpacing(value){
+  if(!value) return;
+  emFocusEditor();
+  emSaveEditorHistory();
+  emStyleBlocks_(function(b){ if(b !== emEditorEl()) b.style.lineHeight = value; });
+  emAfterEdit();
+  document.getElementById('emLineSpacing').value = '';
+}
+
+// ── Inserts ─────────────────────────────────────────────────
+function emInsertHtmlAtCaret(html){
+  emFocusEditor();
+  let ok = false;
+  try{ ok = document.execCommand('insertHTML', false, html); }catch(e){ ok = false; }
+  if(ok) return;
+  const sel = emSelection_();
+  if(!sel){ emEditorEl().insertAdjacentHTML('beforeend', html); return; }
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const frag = range.createContextualFragment(html);
+  const last = frag.lastChild;
+  range.insertNode(frag);
+  if(last){
+    const after = document.createRange();
+    after.setStartAfter(last);
+    after.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(after);
+  }
+}
+
+// Checklist items are rendered as static "☐ " text markers, NOT
+// <input type="checkbox">: email clients strip form controls, so an
+// interactive checkbox would simply disappear in the delivered message.
+function emInsertChecklist(){
+  emSaveEditorHistory();
+  const text = emSelectionText_();
+  const items = (text ? text.split(/\n/) : ['']).map(function(line){
+    return '<div style="margin:0 0 6px;padding-left:2px;">&#9744;&nbsp; ' + esc_(line.trim() || 'Checklist item') + '</div>';
+  }).join('');
+  emInsertHtmlAtCaret(items);
+  emAfterEdit();
+}
+
+function emInsertHorizontalRule(){
+  emSaveEditorHistory();
+  emInsertHtmlAtCaret('<hr style="border:0;border-top:1px solid #EDEDF3;margin:20px 0;"><p><br></p>');
+  emAfterEdit();
+}
+
+function emInsertSectionDivider(){
+  emSaveEditorHistory();
+  emInsertHtmlAtCaret(
+    '<div style="margin:26px 0;text-align:center;border-top:3px double #DDDDE5;padding-top:10px;'
+    + 'font-size:12px;letter-spacing:3px;color:#9A9AA6;">&#9670; &#9670; &#9670;</div><p><br></p>');
+  emAfterEdit();
+}
+
+// ── Links ───────────────────────────────────────────────────
+/** Rejects javascript:, data:, vbscript:, file:, blob: and about: URLs;
+ *  anything without a recognised scheme is treated as https. */
+function emSanitizeUrl_(url){
+  let raw = String(url || '').replace(/[\u0000-\u001F\u007F\s]/g, '').trim();
+  if(!raw) return '';
+  if(/^(javascript|data|vbscript|file|blob|about|jar|ftp):/i.test(raw)) return '';
+  if(/^(https?:|mailto:|tel:|#)/i.test(raw)) return raw;
+  if(/^[a-z][a-z0-9+.-]*:/i.test(raw)) return '';
+  return 'https://' + raw;
+}
+
+function emCurrentLink_(){
+  const sel = emSelection_();
+  if(!sel) return null;
+  let node = sel.anchorNode;
+  const ed = emEditorEl();
+  while(node && node !== ed){
+    if(node.nodeType === 1 && node.tagName === 'A') return node;
+    node = node.parentNode;
+  }
+  return null;
+}
+
+function emInsertLink(){
+  emFocusEditor();
+  const input = window.prompt('Link URL:', 'https://');
+  if(input === null) return;
+  const url = emSanitizeUrl_(input);
+  if(!url){ showPortalToast_('That link was rejected — unsupported or unsafe URL.'); return; }
+  emSaveEditorHistory();
+  const text = emSelectionText_();
+  if(text){
+    let ok = false;
+    try{ ok = document.execCommand('createLink', false, url); }catch(e){ ok = false; }
+    if(!ok) emInsertHtmlAtCaret('<a href="' + esc_(url) + '" target="_blank">' + esc_(text) + '</a>');
+    else {
+      const link = emCurrentLink_();
+      if(link) link.setAttribute('target', '_blank');
+    }
+  } else {
+    emInsertHtmlAtCaret('<a href="' + esc_(url) + '" target="_blank">' + esc_(url) + '</a>&nbsp;');
+  }
+  emAfterEdit();
+}
+
+function emEditLink(){
+  const link = emCurrentLink_();
+  if(!link){ showPortalToast_('Place the cursor inside a link first.'); return; }
+  const input = window.prompt('Edit link URL:', link.getAttribute('href') || 'https://');
+  if(input === null) return;
+  const url = emSanitizeUrl_(input);
+  if(!url){ showPortalToast_('That link was rejected — unsupported or unsafe URL.'); return; }
+  emSaveEditorHistory();
+  link.setAttribute('href', url);
+  link.setAttribute('target', '_blank');
+  emAfterEdit();
+}
+
+function emRemoveLink(){
+  const link = emCurrentLink_();
+  emSaveEditorHistory();
+  if(link){
+    while(link.firstChild) link.parentNode.insertBefore(link.firstChild, link);
+    link.remove();
+    emAfterEdit();
+    return;
+  }
+  emExecCommand('unlink');
+}
+
+/** Inserts a "bulletproof" CTA button: a real, clickable <a> link styled
+ *  to look like a button. This is the pattern that actually works in
+ *  email — a native <button> has no way to navigate anywhere once it
+ *  leaves the browser (no JavaScript, no <form> submit — both are
+ *  stripped by the sanitizer, and no mainstream email client runs
+ *  JavaScript from an email regardless), so an anchor is what every
+ *  major ESP uses under the hood for "button" CTAs. */
+function emInsertCtaButton(){
+  emFocusEditor();
+  const labelInput = window.prompt('Button label:', 'Click Here');
+  if(labelInput === null) return;
+  const urlInput = window.prompt('Button link URL:', 'https://');
+  if(urlInput === null) return;
+  const url = emSanitizeUrl_(urlInput);
+  if(!url){ showPortalToast_('That link was rejected — unsupported or unsafe URL.'); return; }
+  const label = String(labelInput || '').trim() || 'Click Here';
+  emSaveEditorHistory();
+  const html = '<p style="text-align:center;margin:20px 0;">'
+    + '<a href="' + esc_(url) + '" target="_blank" '
+    + 'style="display:inline-block;padding:14px 32px;background:#222689;color:#ffffff;'
+    + 'font-weight:700;font-size:15px;text-decoration:none;border-radius:6px;">'
+    + esc_(label) + '</a></p><p><br></p>';
+  emInsertHtmlAtCaret(html);
+  emAfterEdit();
+}
+
+// ── Table insertion (grid picker) ───────────────────────────
+const EM_TABLE_MAX = 8;
+function emBuildTableGrid_(){
+  const grid = document.getElementById('emTableGrid');
+  let html = '';
+  for(let r = 1; r <= EM_TABLE_MAX; r++){
+    for(let c = 1; c <= EM_TABLE_MAX; c++){
+      html += '<button type="button" data-r="' + r + '" data-c="' + c + '" '
+        + 'aria-label="Insert ' + r + ' by ' + c + ' table" '
+        + 'onmouseover="emHighlightGrid_(' + r + ',' + c + ')" onfocus="emHighlightGrid_(' + r + ',' + c + ')" '
+        + 'onclick="emInsertTable(' + r + ',' + c + ')"></button>';
+    }
+  }
+  grid.innerHTML = html;
+}
+function emHighlightGrid_(rows, cols){
+  Array.prototype.slice.call(document.querySelectorAll('#emTableGrid button')).forEach(function(b){
+    const on = Number(b.dataset.r) <= rows && Number(b.dataset.c) <= cols;
+    b.classList.toggle('on', on);
+  });
+  document.getElementById('emTableGridLabel').textContent = rows + ' × ' + cols;
+}
+function emToggleTablePicker(btn){ emTogglePopover_('emTablePicker', btn); }
+
+// Tables are inserted as real <table> markup carrying inline styles and
+// HTML attributes only — no classes, no <style> — so they survive intact
+// in the delivered email.
+function emInsertTable(rows, cols){
+  emCloseAllPopovers_();
+  emSaveEditorHistory();
+  const tdStyle = 'border:1px solid #DDDDE5;padding:8px;font-size:15px;line-height:1.6;vertical-align:top;';
+  const thStyle = tdStyle + 'background:#F6F7FB;font-weight:700;text-align:left;';
+  let html = '<table border="1" cellpadding="6" cellspacing="0" '
+    + 'style="border-collapse:collapse;width:100%;margin:0 0 14px;">';
+  html += '<thead><tr>';
+  for(let c = 0; c < cols; c++) html += '<th style="' + thStyle + '">Heading ' + (c + 1) + '</th>';
+  html += '</tr></thead><tbody>';
+  for(let r = 1; r < rows; r++){
+    html += '<tr>';
+    for(let c = 0; c < cols; c++) html += '<td style="' + tdStyle + '">&nbsp;</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table><p><br></p>';
+  emInsertHtmlAtCaret(html);
+  emAfterEdit();
+}
+
+// ── Special characters / emoji ──────────────────────────────
+const EM_SPECIAL_CHARS = [
+  '₱','$','€','£','¥','%','№','§','©','®','™','°','±','×','÷','≈','≤','≥','≠',
+  '→','←','↑','↓','•','◦','▪','–','—','…','«','»','“','”','‘','’','†','‡','¶',
+  '½','¼','¾','✓','✔','✗','★','☆','☐','☑','⚠','ℹ','✉','📧','📣','🏠','🔑','📋',
+  '📚','🔍','🎄','🎆','🏆','✨','🙏','👏','😊','🎯','📈','📉','💡','⏰','📅'
+];
+function emBuildCharGrid_(){
+  document.getElementById('emCharGrid').innerHTML = EM_SPECIAL_CHARS.map(function(ch){
+    return '<button type="button" aria-label="Insert ' + esc_(ch) + '" onclick="emInsertSpecialChar(\'' + esc_(ch) + '\')">' + esc_(ch) + '</button>';
+  }).join('');
+}
+function emToggleCharPicker(btn){ emTogglePopover_('emCharPicker', btn); }
+function emInsertSpecialChar(ch){
+  emCloseAllPopovers_();
+  emSaveEditorHistory();
+  emInsertHtmlAtCaret(esc_(ch));
+  emAfterEdit();
+}
+
+// Attachments selected in the composer: [{ name, mimeType, data (base64) }]
+let emAttachments = [];
+
+// ── Update panels (composer) ────────────────────────────────
+// A single textarea holding the blank-line-separated "bullets" text
+// directly — first line of each group is the panel title, the rest is
+// its description. This is exactly what ec_buildCampaignHtml_ in
+// EmailCampaign.gs already parses, so nothing server-side changes.
+function emGetBulletsText_(){
+  const el = document.getElementById('emBulletsInput');
+  return el ? el.value.trim() : '';
+}
+
+function emSetBulletsText_(text){
+  const el = document.getElementById('emBulletsInput');
+  if(el) el.value = text || '';
+  emUpdateCounters();
+}
+// ── Find & replace (scoped to this editor; Ctrl+F is untouched) ──
+let emFindPos = 0;
+function emToggleFindReplace(btn){
+  emTogglePopover_('emFindPanel', btn);
+  if(document.getElementById('emFindPanel').classList.contains('open')){
+    emFindPos = 0;
+    document.getElementById('emFindInput').focus();
+  }
+}
+function emTextSegments_(){
+  const ed = emEditorEl();
+  const walker = document.createTreeWalker(ed, NodeFilter.SHOW_TEXT, null, false);
+  const segs = [];
+  let offset = 0, node;
+  while((node = walker.nextNode())){
+    const text = node.nodeValue || '';
+    segs.push({ node: node, start: offset, text: text });
+    offset += text.length;
+  }
+  return segs;
+}
+function emLocate_(pos, segs, preferEnd){
+  for(let i = 0; i < segs.length; i++){
+    const s = segs[i], st = s.start, en = st + s.text.length;
+    if(preferEnd ? (pos > st && pos <= en) : (pos >= st && pos < en)) return { node: s.node, offset: pos - st };
+  }
+  const last = segs[segs.length - 1];
+  return last ? { node: last.node, offset: last.text.length } : null;
+}
+function emSelectMatch_(start, end, segs){
+  const a = emLocate_(start, segs, false);
+  const b = emLocate_(end, segs, true);
+  if(!a || !b) return false;
+  const range = document.createRange();
+  range.setStart(a.node, a.offset);
+  range.setEnd(b.node, b.offset);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  emEditorEl().focus();
+  return true;
+}
+function emFindReplace(action){
+  const term = String(document.getElementById('emFindInput').value || '');
+  const replacement = String(document.getElementById('emReplaceInput').value || '');
+  const status = document.getElementById('emFindStatus');
+  if(!term){ status.textContent = 'Enter the text you want to find.'; return; }
+
+  if(action === 'replaceAll'){
+    emSaveEditorHistory();
+    let count = 0, guard = 0, pos = 0;
+    while(guard++ < 1000){
+      const segs = emTextSegments_();
+      const full = segs.map(function(s){ return s.text; }).join('');
+      const idx = full.toLowerCase().indexOf(term.toLowerCase(), pos);
+      if(idx === -1) break;
+      if(!emSelectMatch_(idx, idx + term.length, segs)) break;
+      const sel = window.getSelection();
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode(replacement));
+      count++;
+      pos = idx + replacement.length;
+    }
+    emEditorEl().normalize();
+    status.textContent = count ? (count + ' replacement' + (count === 1 ? '' : 's') + ' made.') : 'No matches found.';
+    emFindPos = 0;
+    emAfterEdit();
+    return;
+  }
+
+  if(action === 'replace'){
+    const sel = emSelection_();
+    if(sel && !sel.isCollapsed && sel.toString().toLowerCase() === term.toLowerCase()){
+      emSaveEditorHistory();
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode(replacement));
+      emEditorEl().normalize();
+      emFindPos = emFindPos + replacement.length;
+      status.textContent = 'Replaced.';
+      emAfterEdit();
+      return;
+    }
+    status.textContent = 'Find the text first, then replace it.';
+  }
+
+  const segs = emTextSegments_();
+  const full = segs.map(function(s){ return s.text; }).join('');
+  let idx = full.toLowerCase().indexOf(term.toLowerCase(), emFindPos);
+  if(idx === -1 && emFindPos > 0) idx = full.toLowerCase().indexOf(term.toLowerCase(), 0);
+  if(idx === -1){ status.textContent = 'No matches found.'; emFindPos = 0; return; }
+  emSelectMatch_(idx, idx + term.length, segs);
+  emFindPos = idx + term.length;
+  status.textContent = 'Match found.';
+}
+
+// ── Case transforms + clear formatting ──────────────────────
+function emTransformCase(kind){
+  const sel = emSelection_();
+  if(!sel || sel.isCollapsed){ showPortalToast_('Select some text first.'); return; }
+  const text = sel.toString();
+  let out = text;
+  if(kind === 'upper') out = text.toUpperCase();
+  else if(kind === 'lower') out = text.toLowerCase();
+  else if(kind === 'title'){
+    out = text.toLowerCase().replace(/(^|[\s"'(\[{\-\/])([a-z\u00e0-\u024f])/g, function(m, pre, ch){ return pre + ch.toUpperCase(); });
+  }
+  emSaveEditorHistory();
+  const range = sel.getRangeAt(0);
+  range.deleteContents();
+  const node = document.createTextNode(out);
+  range.insertNode(node);
+  const after = document.createRange();
+  after.selectNodeContents(node);
+  sel.removeAllRanges();
+  sel.addRange(after);
+  emAfterEdit();
+}
+
+/** Removes inline formatting while keeping the text and the surrounding
+ *  paragraph/list structure intact. */
+function emClearFormatting(){
+  emFocusEditor();
+  emSaveEditorHistory();
+  try{ document.execCommand('removeFormat', false, null); }catch(e){}
+  try{ document.execCommand('unlink', false, null); }catch(e){}
+  emBlocksInSelection_().forEach(function(b){
+    if(b === emEditorEl()) return;
+    b.removeAttribute('style');
+    Array.prototype.slice.call(b.querySelectorAll('[style]')).forEach(function(el){ el.removeAttribute('style'); });
+    Array.prototype.slice.call(b.querySelectorAll('font')).forEach(function(f){
+      while(f.firstChild) f.parentNode.insertBefore(f.firstChild, f);
+      f.remove();
+    });
+  });
+  emAfterEdit();
+}
+
+// ── Toolbar active state ────────────────────────────────────
+function emSyncToolbarState_(){
+  Array.prototype.slice.call(document.querySelectorAll('#emToolbar .email-tb-btn[data-cmd]')).forEach(function(btn){
+    let on = false;
+    try{ on = document.queryCommandState(btn.dataset.cmd); }catch(e){ on = false; }
+    btn.classList.toggle('is-active', !!on);
+  });
+}
+
+// ── Counters (rendered text, never raw HTML) ────────────────
+function emUpdateCounters(){
+  const ed = emEditorEl();
+  const counters = document.getElementById('emCounters');
+  if(ed && counters){
+    const text = String(ed.innerText || '').replace(/\u00a0/g, ' ');
+    const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+    counters.textContent = text.replace(/\n/g, '').length + ' characters · ' + words + ' words';
+  }
+  const bulletsCounter = document.getElementById('emBulletsCounter');
+  if(bulletsCounter){
+    const text = document.getElementById('emBulletsInput') ? document.getElementById('emBulletsInput').value : '';
+    const panels = String(text || '').replace(/\r\n/g, '\n').split(/\n\s*\n/)
+      .map(function(c){ return c.trim(); }).filter(Boolean).length;
+    bulletsCounter.textContent = panels + ' panel' + (panels === 1 ? '' : 's') + ' will be rendered in the email.';
+  }
+}
+
+// ── Popover plumbing ────────────────────────────────────────
+function emTogglePopover_(id, anchor){
+  const pop = document.getElementById(id);
+  const wasOpen = pop.classList.contains('open');
+  emCloseAllPopovers_();
+  if(wasOpen) return;
+  const rect = anchor.getBoundingClientRect();
+  const host = document.getElementById('view-emails');
+  const hostRect = host.getBoundingClientRect();
+  pop.style.top = (rect.bottom - hostRect.top + 6) + 'px';
+  pop.style.left = Math.max(0, rect.left - hostRect.left) + 'px';
+  pop.classList.add('open');
+  if(getComputedStyle(host).position === 'static') host.style.position = 'relative';
+}
+function emCloseAllPopovers_(){
+  ['emTablePicker','emCharPicker','emFindPanel'].forEach(function(id){
+    const el = document.getElementById(id);
+    if(el) el.classList.remove('open');
+  });
+}
+document.addEventListener('click', function(e){
+  if(e.target.closest && (e.target.closest('.email-popover') || e.target.closest('#emToolbar'))) return;
+  emCloseAllPopovers_();
+});
+
+// ── Escape / focus handling for this module's modals ────────
+document.addEventListener('keydown', function(e){
+  if(e.key !== 'Escape') return;
+  const view = document.getElementById('view-emails');
+  if(!view || !view.classList.contains('active')) return;
+
+  const open = ['emailPreviewOverlay','emLogOverlay','emDetailOverlay','emConfirmOverlay','emHtmlSourceOverlay'].filter(function(id){
+    const el = document.getElementById(id);
+    return el && el.style.display !== 'none';
+  });
+  if(open.length){
+    e.stopPropagation();
+    if(open[0] === 'emailPreviewOverlay') closeEmailPreview();
+    else if(open[0] === 'emLogOverlay') emCloseLog();
+    else if(open[0] === 'emDetailOverlay') emCloseDetail();
+    else if(open[0] === 'emConfirmOverlay') emCloseConfirm();
+    else emCloseHtmlSource();
+    return;
+  }
+  if(document.querySelector('.email-popover.open')){ e.stopPropagation(); emCloseAllPopovers_(); }
+}, true);
+
+// Basic focus trapping for this module's modals.
+document.addEventListener('keydown', function(e){
+  if(e.key !== 'Tab') return;
+  const overlay = ['emailPreviewOverlay','emConfirmOverlay','emDetailOverlay','emLogOverlay','emHtmlSourceOverlay']
+    .map(function(id){ return document.getElementById(id); })
+    .filter(function(el){ return el && el.style.display !== 'none'; })[0];
+  if(!overlay) return;
+  const focusables = overlay.querySelectorAll('button, [href], input, select, textarea, iframe, [tabindex]:not([tabindex="-1"])');
+  if(!focusables.length) return;
+  const first = focusables[0], last = focusables[focusables.length - 1];
+  if(e.shiftKey && document.activeElement === first){ e.preventDefault(); last.focus(); }
+  else if(!e.shiftKey && document.activeElement === last){ e.preventDefault(); first.focus(); }
+});
+
+// ══════════════════════════════════════════════════════════════
+// CLIENT-SIDE SANITIZATION + EMAIL-SAFE NORMALIZATION
+//
+// SANITIZATION BOUNDARY: this pass exists so the admin never previews or
+// stores obviously unsafe markup, but it is NOT a security guarantee —
+// anything sent to the server is sanitized and normalized again by
+// ec_sanitizeRichHtml_() / ec_normalizeEmailHtml_() before it reaches the
+// branded shell. The server is authoritative.
+// ══════════════════════════════════════════════════════════════
+// Mirrors EC_ALLOWED_TAGS_ on the server (see EmailCampaign.gs) — deliberately
+// broad so ordinary rich text and raw HTML pasted via the "HTML source"
+// editor isn't fought by the sanitizer. Only genuinely executable/dangerous
+// tags stay in EM_STRIP_TAGS below; the server re-sanitizes authoritatively
+// regardless of what this pass allows through.
+// Mirrors EC_ALLOWED_TAGS_ on the server (see EmailCampaign.gs) — every tag
+// is allowed except <script> and a handful of other pure code-execution
+// vectors (iframe/object/embed/form controls/svg/math) that would run or
+// exfiltrate without ever containing the word "script". This matters here
+// more than in the delivered email: this sanitizer runs before markup is
+// dropped into the LIVE, unsandboxed composer editor in the admin portal,
+// so a working exploit here is a real stored-XSS hole against admin
+// sessions, not just a cosmetic issue. The server re-sanitizes
+// authoritatively regardless of what this pass allows through.
+const EM_ALLOWED_TAGS = {
+  a:1, b:1, strong:1, i:1, em:1, u:1, s:1, strike:1, del:1, ins:1,
+  mark:1, small:1, big:1, tt:1, kbd:1, var:1, samp:1, dfn:1, abbr:1,
+  cite:1, q:1, address:1, time:1, bdi:1, bdo:1, label:1, output:1, wbr:1,
+  p:1, br:1, div:1, span:1, h1:1, h2:1, h3:1, h4:1, h5:1, h6:1, blockquote:1,
+  ul:1, ol:1, li:1, dl:1, dt:1, dd:1, hr:1,
+  table:1, thead:1, tbody:1, tfoot:1, tr:1, td:1, th:1, caption:1, colgroup:1, col:1,
+  section:1, article:1, header:1, footer:1, nav:1, aside:1, main:1, figure:1, figcaption:1,
+  details:1, summary:1, style:1, button:1,
+  sup:1, sub:1, font:1, pre:1, code:1, img:1
+};
+const EM_STRIP_TAGS = {
+  script:1, iframe:1, object:1, embed:1, form:1, input:1,
+  select:1, textarea:1, link:1, meta:1, base:1, svg:1, math:1, noscript:1,
+  template:1, picture:1, source:1, track:1, audio:1, video:1, canvas:1, applet:1
+};
+const EM_ALLOWED_ATTRS = {
+  style:1, colspan:1, rowspan:1, align:1, valign:1, width:1, height:1,
+  border:1, cellpadding:1, cellspacing:1, target:1, rel:1, title:1,
+  alt:1, datetime:1, start:1, type:1
+};
+
+function emSanitizeCss_(css){
+  return String(css || '')
+    .replace(/expression\s*\(/gi, '')
+    .replace(/url\s*\(\s*["']?\s*(?:javascript|vbscript|data|file|about|blob)\s*:[^)]*\)/gi, 'url()')
+    .replace(/@import/gi, '')
+    .replace(/behaviou?r\s*:/gi, '')
+    .replace(/["<>]/g, '');
+}
+
+/** For raw <style>...</style> block text — not an HTML attribute, so
+ *  quotes (font-family: "Times New Roman") are left alone. Only the
+ *  constructs that can execute code or pull in a remote stylesheet are
+ *  stripped. */
+function emSanitizeStyleBlockCss_(css){
+  return String(css || '')
+    .replace(/expression\s*\(/gi, '')
+    .replace(/url\s*\(\s*["']?\s*(?:javascript|vbscript|data|file|about|blob)\s*:[^)]*\)/gi, 'url()')
+    .replace(/@import/gi, '')
+    .replace(/behaviou?r\s*:/gi, '');
+}
+
+function emSanitizeHtml_(html){
+  const doc = document.implementation.createHTMLDocument('em-sanitize');
+  doc.body.innerHTML = String(html || '');
+
+  (function walk(parent){
+    Array.prototype.slice.call(parent.childNodes).forEach(function(node){
+      if(node.nodeType === 8){ node.remove(); return; }       // comments
+      if(node.nodeType !== 1) return;                          // text stays
+      const tag = node.tagName.toLowerCase();
+
+      if(EM_STRIP_TAGS[tag]){ node.remove(); return; }         // dropped with contents
+      if(!EM_ALLOWED_TAGS[tag]){                               // unwrapped, text kept
+        while(node.firstChild) parent.insertBefore(node.firstChild, node);
+        node.remove();
+        return;
+      }
+      if(tag === 'style'){                                     // raw CSS text, not markup
+        node.textContent = emSanitizeStyleBlockCss_(node.textContent);
+        return;
+      }
+      Array.prototype.slice.call(node.attributes).forEach(function(attr){
+        const name = attr.name.toLowerCase();
+        if(name === 'href' && tag === 'a'){
+          const safe = emSanitizeUrl_(attr.value);
+          if(safe) node.setAttribute('href', safe); else node.removeAttribute(attr.name);
+          return;
+        }
+        if(name === 'src' && tag === 'img'){
+          const safeSrc = emSanitizeUrl_(attr.value);
+          if(safeSrc) node.setAttribute('src', safeSrc); else node.removeAttribute(attr.name);
+          return;
+        }
+        if(!EM_ALLOWED_ATTRS[name]){ node.removeAttribute(attr.name); return; }
+        if(name === 'style') node.setAttribute('style', emSanitizeCss_(attr.value));
+      });
+      if(tag === 'img' && !node.getAttribute('src')){ node.remove(); return; }
+      walk(node);
+    });
+  })(doc.body);
+
+  return doc.body.innerHTML;
+}
+
+/** Mirrors ec_normalizeEmailHtml_() so the in-app preview shows what the
+ *  server will actually build: every structural tag carries inline
+ *  formatting, with no classes, <style> blocks, flexbox or grid. */
+function emNormalizeEmailHtml_(html){
+  const doc = document.implementation.createHTMLDocument('em-normalize');
+  doc.body.innerHTML = emSanitizeHtml_(html);
+
+  const STYLES = {
+    P:  'margin:0 0 14px;font-size:16px;line-height:1.75;color:#2B2B33',
+    DIV:'font-size:16px;line-height:1.75;color:#2B2B33',
+    H1: 'margin:0 0 10px;font-size:26px;line-height:1.3;font-weight:700;color:#1B1B22',
+    H2: 'margin:0 0 9px;font-size:22px;line-height:1.3;font-weight:700;color:#1B1B22',
+    H3: 'margin:0 0 8px;font-size:18px;line-height:1.35;font-weight:700;color:#1B1B22',
+    H4: 'margin:0 0 8px;font-size:16px;line-height:1.35;font-weight:700;color:#1B1B22',
+    H5: 'margin:0 0 8px;font-size:15px;line-height:1.4;font-weight:700;color:#1B1B22',
+    H6: 'margin:0 0 8px;font-size:14px;line-height:1.4;font-weight:700;color:#1B1B22;text-transform:uppercase;letter-spacing:0.02em',
+    BLOCKQUOTE:'margin:0 0 14px;padding:10px 16px;border-left:4px solid #222689;background:#F6F7FB;color:#5C5C68;font-style:italic',
+    UL: 'margin:0 0 14px;padding-left:24px',
+    OL: 'margin:0 0 14px;padding-left:24px',
+    LI: 'margin:0 0 6px;font-size:16px;line-height:1.7',
+    DL: 'margin:0 0 14px',
+    DT: 'font-weight:700;font-size:16px;color:#1B1B22;margin:0 0 2px',
+    DD: 'margin:0 0 10px 18px;font-size:16px;line-height:1.7;color:#2B2B33',
+    ADDRESS:'margin:0 0 14px;font-style:normal;font-size:16px;line-height:1.7;color:#2B2B33',
+    A:  'color:#222689;text-decoration:underline',
+    PRE:"margin:0 0 14px;padding:12px;background:#F6F7FB;font-family:'Courier New',monospace;font-size:14px;white-space:pre-wrap",
+    CODE:"font-family:'Courier New',monospace;font-size:14px",
+    HR: 'border:0;border-top:1px solid #EDEDF3;margin:20px 0',
+    TABLE:'border-collapse:collapse;width:100%;margin:0 0 14px',
+    CAPTION:'font-size:14px;color:#5C5C68;margin:0 0 6px;text-align:left',
+    TD: 'border:1px solid #DDDDE5;padding:8px;font-size:15px;line-height:1.6;vertical-align:top',
+    TH: 'border:1px solid #DDDDE5;padding:8px;font-size:15px;line-height:1.6;background:#F6F7FB;text-align:left;font-weight:700',
+    IMG:'max-width:100%;height:auto;display:block',
+    DETAILS:'margin:0 0 14px;font-size:16px;line-height:1.7;color:#2B2B33',
+    SUMMARY:'font-weight:700;cursor:pointer;color:#1B1B22',
+    MARK:'background:#FFF3B0;color:#1B1B22;padding:0 2px',
+    BUTTON:'display:inline-block;padding:12px 28px;background:#222689;color:#ffffff;border:none;border-radius:6px;font-weight:700;font-size:15px;text-decoration:none;font-family:Montserrat,Arial,sans-serif;'
+  };
+
+  Array.prototype.slice.call(doc.body.querySelectorAll('*')).forEach(function(el){
+    el.removeAttribute('class');
+    const base = STYLES[el.tagName];
+    if(base) el.setAttribute('style', base + ';' + (el.getAttribute('style') || ''));
+    if(el.tagName === 'A') el.setAttribute('target', '_blank');
+    if(el.tagName === 'TABLE'){
+      el.setAttribute('border', '1');
+      el.setAttribute('cellpadding', '6');
+      el.setAttribute('cellspacing', '0');
+    }
+  });
+
+  return doc.body.innerHTML;
+}
+
+function emOnAttachmentsChange(input) {
+  const files = Array.prototype.slice.call(input.files || []);
+  if (!files.length) {
+    emAttachments = [];
+    emRenderAttachmentList_();
+    return;
+  }
+  // Read each file as base64; replace previous selection on every change
+  const pending = files.map(function (file) {
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () {
+        // result is "data:<mime>;base64,<data>"
+        const result = String(reader.result || "");
+        const comma = result.indexOf(",");
+        const data = comma >= 0 ? result.slice(comma + 1) : result;
+        resolve({
+          name: file.name,
+          mimeType: file.type || "application/octet-stream",
+          data: data
+        });
+      };
+      reader.onerror = function () { reject(new Error("Failed to read " + file.name)); };
+      reader.readAsDataURL(file);
+    });
+  });
+  Promise.all(pending).then(function (list) {
+    emAttachments = list;
+    emRenderAttachmentList_();
+  }).catch(function (err) {
+    showPortalToast_(err.message || "Could not read one or more files.");
+    emAttachments = [];
+    emRenderAttachmentList_();
+    input.value = "";
+  });
+}
+
+function emRenderAttachmentList_() {
+  const el = document.getElementById("emAttachmentList");
+  if (!el) return;
+  if (!emAttachments.length) {
+    el.textContent = "No files selected.";
+    return;
+  }
+  el.innerHTML = emAttachments.map(function (a, i) {
+    return '<div style="display:flex;align-items:center;gap:8px;margin:4px 0;">'
+      + '<i class="fa-solid fa-paperclip"></i> '
+      + '<span style="font-weight:600;">' + esc_(a.name) + '</span>'
+      + '<button type="button" class="icon-btn danger" title="Remove" '
+      + 'onclick="emRemoveAttachment(' + i + ')"><i class="fa-solid fa-xmark"></i></button>'
+      + '</div>';
+  }).join("");
+}
+
+function emRemoveAttachment(index) {
+  emAttachments.splice(index, 1);
+  emRenderAttachmentList_();
+  // Clear the file input so the same file can be re-picked later
+  const input = document.getElementById("emAttachments");
+  if (input) input.value = "";
+}
+
+function emClearAttachments_() {
+  emAttachments = [];
+  const input = document.getElementById("emAttachments");
+  if (input) input.value = "";
+  emRenderAttachmentList_();
+}
+
+// ── Canonical body accessors ────────────────────────────────
+function emGetBodyHtml(){
+  const ed = emEditorEl();
+  if(!ed) return '';
+  emNormalizeFontTags_();
+  const html = emSanitizeHtml_(ed.innerHTML);
+  return html.replace(/<p>\s*(<br\s*\/?>)?\s*<\/p>/gi, '').trim() ? html : '';
+}
+function emGetBodyText(){
+  const ed = emEditorEl();
+  return ed ? String(ed.innerText || '').trim() : '';
+}
+</script>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+// INLINE IMAGES — insert, resize, align, move, delete
+// ══════════════════════════════════════════════════════════════
+const EM_IMG_MAX_W = 548;           // width of the email's content column
+const EM_IMG_UPLOAD_MAX_PX = 1200;  // longest side after compression
+let emSelectedImg_ = null;
+let emSavedRange_ = null;
+let emImgBusy_ = false;
+
+function emInitImageTools_(){
+  const ed = emEditorEl();
+  const wrap = document.getElementById('emEditorWrap');
+  if(!ed || !wrap || wrap.dataset.imgReady) return;
+  wrap.dataset.imgReady = '1';
+
+  ed.addEventListener('click', function(e){
+    if(e.target && e.target.tagName === 'IMG') emSelectImage_(e.target);
+    else emDeselectImage_();
+  });
+  ed.addEventListener('scroll', emPositionImgTools_);
+  ed.addEventListener('input', emPositionImgTools_);
+  ed.addEventListener('dragstart', emDeselectImage_);
+  ed.addEventListener('keyup', emRememberCaret_);
+  ed.addEventListener('mouseup', emRememberCaret_);
+  window.addEventListener('resize', emPositionImgTools_);
+
+  document.addEventListener('mousedown', function(e){
+    if(!emSelectedImg_ || !e.target.closest) return;
+    if(e.target.closest('#emEditor') || e.target.closest('#emImgBar') || e.target.closest('#emImgBox')) return;
+    emDeselectImage_();
+  });
+
+  // Keep the editor selection alive while an image-bar button is pressed.
+  document.getElementById('emImgBar').addEventListener('mousedown', function(e){ e.preventDefault(); });
+
+  // Drag the corner handle to resize.
+  const handle = document.getElementById('emImgHandle');
+  handle.addEventListener('pointerdown', function(e){
+    if(!emSelectedImg_) return;
+    e.preventDefault();
+    handle.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const startW = emSelectedImg_.getBoundingClientRect().width;
+    emSaveEditorHistory();
+    function move(ev){ emSetImgWidth_(emSelectedImg_, startW + (ev.clientX - startX)); }
+    function up(){
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+      emAfterEdit();
+    }
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
+  });
+}
+
+function emRememberCaret_(){
+  const sel = emSelection_();
+  if(sel) emSavedRange_ = sel.getRangeAt(0).cloneRange();
+}
+
+function emImgStatus_(text, isErr){
+  const el = document.getElementById('emImgStatus');
+  if(!el) return;
+  el.textContent = text || '';
+  el.style.color = isErr ? 'var(--red)' : '';
+}
+
+// ── Selecting / positioning the handle + toolbar ────────────
+function emSelectImage_(img){
+  emSelectedImg_ = img;
+  emPositionImgTools_();
+}
+function emDeselectImage_(){
+  emSelectedImg_ = null;
+  emPositionImgTools_();
+}
+function emPositionImgTools_(){
+  const box = document.getElementById('emImgBox');
+  const bar = document.getElementById('emImgBar');
+  const wrap = document.getElementById('emEditorWrap');
+  const ed = emEditorEl();
+  if(!box || !bar || !wrap || !ed) return;
+
+  if(!emSelectedImg_ || !ed.contains(emSelectedImg_)){
+    emSelectedImg_ = null;
+    box.style.display = 'none'; bar.style.display = 'none';
+    return;
+  }
+  const r = emSelectedImg_.getBoundingClientRect();
+  const w = wrap.getBoundingClientRect();
+  const e = ed.getBoundingClientRect();
+  if(r.bottom < e.top + 10 || r.top > e.bottom - 10){   // scrolled out of view
+    box.style.display = 'none'; bar.style.display = 'none';
+    return;
+  }
+  box.style.display = 'block';
+  box.style.left = (r.left - w.left) + 'px';
+  box.style.top = (r.top - w.top) + 'px';
+  box.style.width = r.width + 'px';
+  box.style.height = r.height + 'px';
+
+  bar.style.display = 'flex';
+  let top = r.top - w.top - bar.offsetHeight - 8;
+  if(top < 0) top = (r.top - w.top) + 8;
+  bar.style.top = top + 'px';
+  bar.style.left = Math.max(0, Math.min(r.left - w.left, w.width - bar.offsetWidth)) + 'px';
+}
+
+function emInsertAgentName(){
+  const ta = document.getElementById('emSignoff');
+  if(!ta) return;
+  const s = ta.selectionStart, e = ta.selectionEnd;
+  ta.value = ta.value.slice(0, s) + '[Agent Name]' + ta.value.slice(e);
+  ta.focus();
+  ta.setSelectionRange(s + 12, s + 12);
+}
+
+// ── Size / alignment / move / delete ────────────────────────
+function emSetImgWidth_(img, w){
+  w = Math.round(Math.max(40, Math.min(EM_IMG_MAX_W, w)));
+  img.style.width = w + 'px';
+  img.style.height = 'auto';
+  img.setAttribute('width', w);      // Outlook honours the attribute
+  img.removeAttribute('height');
+  emPositionImgTools_();
+}
+function emImgSetWidth(px){
+  if(!emSelectedImg_) return;
+  emSaveEditorHistory();
+  emSetImgWidth_(emSelectedImg_, px);
+  emAfterEdit();
+}
+function emImgAlign(kind){
+  const img = emSelectedImg_;
+  if(!img) return;
+  emSaveEditorHistory();
+  if(kind === 'inline'){
+    img.style.display = 'inline-block';
+    img.style.margin = '4px 8px 4px 0';
+    img.style.verticalAlign = 'top';
+  } else {
+    img.style.display = 'block';
+    img.style.verticalAlign = '';
+    img.style.margin = kind === 'center' ? '8px auto' : (kind === 'right' ? '8px 0 8px auto' : '8px auto 8px 0');
+  }
+  emAfterEdit();
+  emPositionImgTools_();
+}
+function emImgDelete(){
+  const img = emSelectedImg_;
+  if(!img) return;
+  emSaveEditorHistory();
+  img.remove();
+  emSelectedImg_ = null;
+  emAfterEdit();
+  emPositionImgTools_();
+}
+/** dir = -1 moves the image above the previous block (or above its own
+ *  paragraph's text); dir = 1 moves it below. */
+function emMoveImage_(dir){
+  const img = emSelectedImg_;
+  const ed = emEditorEl();
+  if(!img || !ed) return;
+  emSaveEditorHistory();
+
+  let block = img;
+  while(block.parentNode && block.parentNode !== ed) block = block.parentNode;
+
+  const hasText = (block.textContent || '').replace(/\u00a0/g, '').trim().length > 0;
+  const onlyThis = (block === img) || (!hasText && block.querySelectorAll('img').length === 1);
+
+  if(!onlyThis){
+    // The image shares a paragraph with text — pull it out into its own line.
+    const p = document.createElement('p');
+    p.appendChild(img);
+    ed.insertBefore(p, dir < 0 ? block : block.nextSibling);
+    if(!(block.textContent || '').trim() && !block.querySelector('img')) block.remove();
+  } else {
+    const sib = dir < 0 ? block.previousElementSibling : block.nextElementSibling;
+    if(!sib) return;
+    ed.insertBefore(block, dir < 0 ? sib : sib.nextSibling);
+  }
+  emAfterEdit();
+  emPositionImgTools_();
+}
+
+// ── Insert flow: pick → compress → upload → insert ──────────
+function emPickImages(){
+  emFocusEditor();
+  const sel = emSelection_();
+  if(sel){
+    const range = sel.getRangeAt(0).cloneRange();
+    if(emSelectedImg_ && emEditorEl().contains(emSelectedImg_)){
+      range.setStartAfter(emSelectedImg_);   // insert AFTER the selected image, don't replace it
+      range.collapse(true);
+    }
+    emSavedRange_ = range;
+  }
+  document.getElementById('emImageInput').click();
+}
+
+function emCompressImage_(file){
+  return new Promise(function(resolve, reject){
+    const reader = new FileReader();
+    reader.onerror = function(){ reject(new Error('Could not read the file.')); };
+    reader.onload = function(){
+      const img = new Image();
+      img.onerror = function(){ reject(new Error('Could not open the image.')); };
+      img.onload = function(){
+        const scale = Math.min(1, EM_IMG_UPLOAD_MAX_PX / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * scale));
+        c.height = Math.max(1, Math.round(img.height * scale));
+        const ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        const dataUrl = c.toDataURL('image/jpeg', 0.85);
+        resolve({
+          name: file.name.replace(/\.[^.]+$/, '') + '.jpg',
+          mimeType: 'image/jpeg',
+          data: dataUrl.slice(dataUrl.indexOf(',') + 1),
+          width: c.width
+        });
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function emOnImagesChosen(input){
+  const files = Array.prototype.slice.call(input.files || []);
+  input.value = '';
+  emUploadImageFiles_(files);
+}
+
+/** Shared by the toolbar "Insert image" button AND pasted images. */
+function emUploadImageFiles_(allFiles){
+  const files = Array.prototype.slice.call(allFiles || [])
+    .filter(function(f){ return /^image\/(png|jpe?g|gif|webp)$/i.test(f.type); });
+  if(!files.length){ emImgStatus_('Please choose PNG, JPG, GIF or WEBP images.', true); return; }
+  if(emImgBusy_){ emImgStatus_('Still uploading — please wait a moment.', true); return; }
+
+  emImgBusy_ = true;
+  let i = 0, ok = 0, failed = 0;
+
+  (function next(){
+    if(i >= files.length){
+      emImgBusy_ = false;
+      emImgStatus_(ok + ' image' + (ok === 1 ? '' : 's') + ' inserted' + (failed ? ', ' + failed + ' failed' : '') +
+        '. Click an image to resize, align, move or delete it.', failed > 0 && !ok);
+      return;
+    }
+    const file = files[i++];
+    emImgStatus_('Uploading image ' + i + ' of ' + files.length + '…');
+    let payload;
+    emCompressImage_(file).then(function(p){
+      payload = p;
+      return new Promise(function(resolve, reject){
+        google.script.run.withSuccessHandler(resolve).withFailureHandler(reject)
+          .ec_uploadEmailImage(getSession(), p);
+      });
+    }).then(function(res){
+      if(!res || !res.ok) throw new Error((res && res.error) || 'Upload failed.');
+      emInsertImageUrl_(res.url, file.name || 'pasted-image', payload.width);
+      ok++;
+    }).catch(function(err){
+      failed++;
+      emImgStatus_('"' + (file.name || 'pasted image') + '": ' + (err && err.message ? err.message : err), true);
+    }).then(next);
+  })();
+}
+
+function emInsertImageUrl_(url, name, naturalW){
+  const safe = emSanitizeUrl_(url);
+  if(!safe) return;
+  const ed = emEditorEl();
+  const sel = window.getSelection();
+  if(emSavedRange_ && ed.contains(emSavedRange_.commonAncestorContainer)){
+    sel.removeAllRanges();
+    sel.addRange(emSavedRange_);
+  }
+  emDeselectImage_();
+  emSaveEditorHistory();
+  const w = Math.max(40, Math.min(400, Number(naturalW) || 400));
+  const alt = String(name || '').replace(/["<>]/g, '');
+  emInsertHtmlAtCaret('<img src="' + esc_(safe) + '" alt="' + alt + '" width="' + w + '" '
+    + 'style="width:' + w + 'px;height:auto;display:block;margin:8px auto;">');
+  emEnsureTrailingParagraph_();
+  const s2 = emSelection_();
+  if(s2) emSavedRange_ = s2.getRangeAt(0).cloneRange();
+  emAfterEdit();
+}
+
+/** Guarantees there is always a typeable line below the last image. */
+function emEnsureTrailingParagraph_(){
+  const ed = emEditorEl();
+  const last = ed.lastElementChild;
+  if(!last || last.tagName === 'IMG' || (last.querySelector('img') && !(last.textContent || '').trim())){
+    ed.insertAdjacentHTML('beforeend', '<p><br></p>');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// Images inside Update panels + Sign-off (marker: [img:https://...|w=140|side])
+// ══════════════════════════════════════════════════════════════
+function emParseImgLine_(line){
+  const m = String(line || '').trim().match(/^\[img:(https:\/\/[^\s|\]]+)(?:\|([^\]]*))?\]$/i);
+  if(!m) return null;
+  let w = 160, side = false;
+  String(m[2] || '').toLowerCase().split('|').forEach(function(o){
+    o = o.trim();
+    if(o === 'side') side = true;
+    const wm = o.match(/^w=(\d{2,3})$/);
+    if(wm) w = Math.min(520, Math.max(40, parseInt(wm[1], 10)));
+  });
+  return { url: m[1], width: w, side: side };
+}
+function emImgTagHtml_(im){
+  return '<img src="' + esc_(im.url) + '" width="' + im.width + '" alt="" style="display:block;width:' + im.width + 'px;max-width:100%;height:auto;border:0;border-radius:6px;">';
+}
+
+function emRenderTextWithImages_(text, name){
+  return String(text || '').replace(/\[Agent Name\]/g, name).split(/\n\s*\n/).map(function(p){
+    let out = '', buf = [];
+    function flush(){ if(buf.length){ out += '<p>' + buf.map(function(l){ return esc_(l); }).join('<br>') + '</p>'; buf = []; } }
+    p.split(/\n/).forEach(function(l){
+      const im = emParseImgLine_(l);
+      if(im){ flush(); out += '<p style="margin:0 0 14px;">' + emImgTagHtml_(im) + '</p>'; }
+      else buf.push(l);
+    });
+    flush();
+    return out;
+  }).join('');
+}
+
+function emBuildPanelsHtmlFromText_(bulletsText){
+  const panelColors = ['navy','green','orange','navy','green','orange'];
+  const raw = String(bulletsText || '').replace(/\r\n/g, '\n');
+  const groups = raw.split(/\n\s*\n/).map(function(chunk){
+    return chunk.split(/\n/).map(function(l){ return l.trim(); }).filter(Boolean);
+  }).filter(function(lines){ return lines.length > 0; });
+
+  return groups.map(function(allLines, i){
+    const color = panelColors[i % panelColors.length];
+    const images = [], lines = [];
+    allLines.forEach(function(l){ const im = emParseImgLine_(l); if(im) images.push(im); else lines.push(l); });
+
+    let title = '', contents = [];
+    if(lines.length){
+      const first = lines[0];
+      const fm = first.match(/^(.+?)\s*[—–]\s*(.+)$/) || first.match(/^(.+?)\s*:\s*(.+)$/);
+      if(fm){ title = fm[1].trim(); contents.push(fm[2].trim()); contents = contents.concat(lines.slice(1)); }
+      else { title = first; contents = lines.slice(1); }
+    }
+    const contentsHtml = contents.map(function(line){
+      const m = line.match(/^(.+?)\s*[—–]\s*(.+)$/) || line.match(/^(.+?)\s*:\s*(.+)$/);
+      if(m){
+        return '<div style="margin:0 0 6px;font-size:15px;line-height:1.6;color:#5C5C68;"><strong style="color:#1B1B22;">' + esc_(m[1].trim()) + '</strong> — ' + esc_(m[2].trim()) + '</div>';
+      }
+      return '<div style="margin:0 0 6px;font-size:15px;line-height:1.6;color:#5C5C68;">' + esc_(line) + '</div>';
+    }).join('');
+
+    const sideImgs = images.filter(function(x){ return x.side; });
+    const belowImgs = images.filter(function(x){ return !x.side; });
+    const gap = '<div style="height:8px;line-height:8px;font-size:8px;">&nbsp;</div>';
+    let inner = contentsHtml || (images.length ? '' : '<p style="margin:0;font-style:italic;color:#AEAEBC;">(no details yet)</p>');
+
+    if(sideImgs.length){
+      const colW = Math.max.apply(null, sideImgs.map(function(x){ return x.width; })) + 14;
+      inner = '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>'
+        + '<td valign="top" style="padding-right:14px;">' + inner + '</td>'
+        + '<td valign="top" align="right" width="' + colW + '" style="width:' + colW + 'px;">'
+        + sideImgs.map(emImgTagHtml_).join(gap) + '</td></tr></table>';
+    }
+    if(belowImgs.length){
+      inner += '<div style="margin-top:10px;">' + belowImgs.map(emImgTagHtml_).join(gap) + '</div>';
+    }
+    return '<div class="panel ' + color + '">' + (title ? '<h3>' + esc_(title) + '</h3>' : '') + inner + '</div>';
+  }).join('');
+}
+
+// ── Upload + insert marker at the cursor ──
+let emFieldImgTarget_ = null;
+let emFieldImgBusy_ = false;
+const emFieldCaret_ = {};
+
+function emBindFieldImageEvents_(){
+['emBulletsInput', 'emSignoff'].forEach(function(id){
+  const ta = document.getElementById(id);
+  if(!ta || ta.dataset.imgBound) return;
+  ta.dataset.imgBound = '1';
+  ['keyup', 'click', 'blur', 'input'].forEach(function(evt){
+    ta.addEventListener(evt, function(){ emFieldCaret_[id] = ta.selectionStart; });
+  });
+  ta.addEventListener('paste', function(e){
+    const items = (e.clipboardData && e.clipboardData.items) ? Array.prototype.slice.call(e.clipboardData.items) : [];
+    const files = items.filter(function(it){ return it.kind === 'file' && /^image\//i.test(it.type); })
+      .map(function(it){ return it.getAsFile(); }).filter(Boolean);
+    if(!files.length) return;
+    e.preventDefault();
+    emFieldCaret_[id] = ta.selectionStart;
+    emUploadFieldImages_(files, id);
+ });
+}
+
+function emPickFieldImage(targetId){
+  const ta = document.getElementById(targetId);
+  if(!ta){ showPortalToast_('Could not find that field.'); return; }
+  // selectionStart is still valid after the textarea loses focus
+  emFieldCaret_[targetId] = ta.selectionStart;
+
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/png,image/jpeg,image/gif,image/webp';
+  inp.multiple = true;
+  inp.style.display = 'none';
+  inp.onchange = function(){
+    const files = Array.prototype.slice.call(inp.files || []);
+    inp.remove();
+    emUploadFieldImages_(files, targetId);
+  };
+  document.body.appendChild(inp);
+  inp.click();
+}
+
+function emUploadFieldImages_(allFiles, targetId){
+  const files = Array.prototype.slice.call(allFiles || []).filter(function(f){ return /^image\/(png|jpe?g|gif|webp)$/i.test(f.type); });
+  if(!files.length || !targetId){ showPortalToast_('Please choose PNG, JPG, GIF or WEBP images.'); return; }
+  if(emFieldImgBusy_){ showPortalToast_('Still uploading — please wait a moment.'); return; }
+  emFieldImgBusy_ = true;
+  let i = 0;
+  (function next(){
+    if(i >= files.length){ emFieldImgBusy_ = false; showPortalToast_('Image inserted'); return; }
+    const file = files[i++];
+    showPortalToast_('Uploading image ' + i + ' of ' + files.length + '…');
+    emCompressImage_(file).then(function(p){
+      return new Promise(function(resolve, reject){
+        google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).ec_uploadEmailImage(getSession(), p);
+      });
+    }).then(function(res){
+      if(!res || !res.ok) throw new Error((res && res.error) || 'Upload failed.');
+      emInsertImageToken_(targetId, res.url);
+    }).catch(function(err){
+      showPortalToast_('Image failed: ' + (err && err.message ? err.message : err));
+    }).then(next);
+  })();
+}
+
+function emInsertImageToken_(targetId, url){
+  const ta = document.getElementById(targetId);
+  if(!ta) return;
+  const isPanels = targetId === 'emBulletsInput';
+  const modeEl = document.getElementById('emBulletsImgMode');
+  const token = isPanels
+    ? '[img:' + url + '|w=' + ((modeEl && modeEl.value === 'below') ? '400' : '140|side') + ']'
+    : '[img:' + url + '|w=200]';
+
+  const v = ta.value;
+  let pos = emFieldCaret_[targetId];
+  if(pos == null || pos > v.length) pos = v.length;
+  let lineStart = v.lastIndexOf('\n', pos - 1) + 1;
+  let lineEnd = v.indexOf('\n', pos);
+  if(lineEnd === -1) lineEnd = v.length;
+
+  // In panels, never insert on a blank line (that would start a new panel):
+  // walk back to the previous text line so the image joins that panel.
+  if(isPanels){
+    while(v.slice(lineStart, lineEnd).trim() === '' && lineStart > 0){
+      lineEnd = lineStart - 1;
+      lineStart = lineEnd > 0 ? v.lastIndexOf('\n', lineEnd - 1) + 1 : 0;
+    }
+  }
+  const before = v.slice(0, lineEnd);
+  const insert = (before.length ? '\n' : '') + token;
+  ta.value = before + insert + v.slice(lineEnd);
+  emFieldCaret_[targetId] = (before + insert).length;
+  if(typeof emUpdateCounters === 'function') emUpdateCounters();
+}
+
+</script>

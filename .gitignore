@@ -1,0 +1,11 @@
+# Local deployment mapping and credentials
+.clasp.json
+.clasprc.json
+.env
+.env.*
+!.env.example
+
+# Generated previews and temporary files
+tmp/
+node_modules/
+*.log

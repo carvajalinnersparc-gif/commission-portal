@@ -1,0 +1,307 @@
+// ============================================================
+// Portal_JS.html UPDATES — Inactive Agent Support
+// 
+// Add these code snippets to Portal_JS.html to support
+// inactive (resigned) agents with PDF-only view
+// ============================================================
+
+// 1. ADD THIS GLOBAL VARIABLE at the top with other globals
+// ========================================================
+let CURRENT_IS_ACTIVE = true;  // Track if current agent is active
+
+// 2. UPDATE enterPortal() function to check isActive status
+// ========================================================
+// FIND THIS SECTION (around line 229-241):
+/*
+  google.script.run.withSuccessHandler(res=>{
+    if(res.valid){
+      CURRENT_ROLE = res.role || '';
+      CURRENT_DISPLAY_NAME = res.displayName || '';
+      document.getElementById('pUserName').innerHTML = res.displayName + '<span>'+(res.role||'Agent')+'</span>';
+      const isAdmin = String(res.role||'').trim().toUpperCase() === 'ADMIN';
+      document.getElementById('navAdminBtn').style.display = isAdmin ? '' : 'none';
+      if(targetView === 'admin'){ navTo(isAdmin ? 'admin' : 'dashboard'); }
+      // Kick off background cache fill immediately upon valid session confirmation
+      runBackgroundDataPrefetch(sid);
+      startRoleChangeWatcher_();
+    }
+  }).pa_validateSession(sid);
+*/
+
+// REPLACE WITH:
+function enterPortal(view){
+  document.getElementById('authScreen').style.display = 'none';
+  document.getElementById('portalScreen').style.display = 'flex';
+  const targetView = (view === 'sale') ? 'sales' : view;
+  const sid = getSession();
+
+  google.script.run.withSuccessHandler(res=>{
+    if(res.valid){
+      CURRENT_ROLE = res.role || '';
+      CURRENT_DISPLAY_NAME = res.displayName || '';
+      CURRENT_IS_ACTIVE = res.isActive !== false; // ADDED: capture active status
+      document.getElementById('pUserName').innerHTML = res.displayName + '<span>'+(res.role||'Agent')+'</span>';
+      
+      // ADDED: Show inactive agent banner if not active
+      if (!CURRENT_IS_ACTIVE) {
+        showInactiveAgentBanner_();
+      }
+      
+      const isAdmin = String(res.role||'').trim().toUpperCase() === 'ADMIN';
+      document.getElementById('navAdminBtn').style.display = isAdmin ? '' : 'none';
+      if(targetView === 'admin'){ navTo(isAdmin ? 'admin' : 'dashboard'); }
+      
+      // ADDED: Only prefetch data if agent is active
+      if (CURRENT_IS_ACTIVE) {
+        runBackgroundDataPrefetch(sid);
+        startRoleChangeWatcher_();
+      } else {
+        // For inactive agents, go directly to commission section
+        navTo('dashboard');
+      }
+    }
+  }).pa_validateSession(sid);
+
+  if(targetView !== 'admin'){
+    navTo(targetView);
+    if(view === 'sale' && INITIAL_SALEID){ openSaleDetail(INITIAL_SALEID); }
+  }
+}
+
+// 3. ADD NEW FUNCTION to show inactive banner
+// ============================================
+function showInactiveAgentBanner_(){
+  const banner = document.getElementById('inactiveAgentBanner');
+  if (banner) {
+    banner.style.display = 'flex';
+  }
+  // Hide navigation items that shouldn't be visible to inactive agents
+  document.getElementById('navDashboardBtn')?.style.display = 'none';
+  document.getElementById('navSalesBtn')?.style.display = 'none';
+  document.getElementById('navAdminBtn')?.style.display = 'none';
+  // Keep profile button visible so they can change password
+}
+
+// 4. UPDATE navTo() function to restrict inactive agents
+// =======================================================
+// FIND THE navTo() function and update it
+
+function navTo(view){
+  // ADDED: Prevent inactive agents from navigating to restricted views
+  if (!CURRENT_IS_ACTIVE && ['sales', 'admin'].indexOf(view) !== -1) {
+    view = 'dashboard'; // Force to dashboard (commission section only)
+  }
+  
+  document.querySelectorAll('.p-view').forEach(v=>v.classList.remove('active'));
+  document.querySelectorAll('.p-nav button').forEach(b=>b.classList.toggle('active', b.dataset.view===view));
+  document.getElementById('view-'+view).classList.add('active');
+  document.getElementById('pNav').classList.remove('open');
+  document.querySelectorAll('.p-bottomnav button').forEach(b=>b.classList.toggle('active', b.dataset.view===view));
+  
+  if(view==='dashboard') loadDashboard();
+  if(view==='sales') loadSalesHistory();
+  if(view==='profile') loadProfile();
+  if(view==='admin') loadAdminTab(currentAdminTab);
+
+  if(view !== 'sale') pushRouteHistory_(view);
+}
+
+// 5. UPDATE loadDashboard() to handle inactive agents
+// ====================================================
+// FIND THE loadDashboard() function (around line 400+) and modify it:
+
+function loadDashboard(){
+  const sid = getSession();
+  if(!sid) return;
+
+  if(window.portalCache.dashboard && !CURRENT_IS_ACTIVE){
+    // For inactive agents, only render commission section
+    renderInactiveAgentView_(window.portalCache.dashboard);
+    return;
+  }
+
+  google.script.run.withSuccessHandler(res=>{
+    if(res.ok){
+      window.portalCache.dashboard = res;
+      if(document.getElementById('view-dashboard').classList.contains('active')){
+        // ADDED: Check if inactive
+        if (!CURRENT_IS_ACTIVE || res.isInactive) {
+          renderInactiveAgentView_(res);
+        } else {
+          renderDashboardUI_(res);
+        }
+      }
+    }
+  }).pa_getDashboard(sid);
+}
+
+// 6. ADD NEW FUNCTION to render inactive agent view
+// ==================================================
+function renderInactiveAgentView_(res){
+  if (!res.ok || res.isInactive) {
+    document.getElementById('view-dashboard').innerHTML = `
+      <div style="padding: 20px; text-align: center;">
+        <div style="color: #ff6b6b; font-size: 18px; margin-bottom: 15px;">
+          ⚠️ Account Inactive
+        </div>
+        <p style="color: #666; margin-bottom: 20px;">
+          Your account is currently inactive. You can view your commission record in PDF format below.
+        </p>
+      </div>
+    `;
+  }
+  
+  // Show the commission section (it will only allow PDF downloads for inactive agents)
+  const commSection = document.getElementById('rcCommissionSection');
+  if (commSection) {
+    commSection.style.display = 'block';
+    // Render commission data
+    loadCommissionForInactiveAgent_();
+  }
+}
+
+// 7. ADD NEW FUNCTION to load commission for inactive agents
+// ===========================================================
+function loadCommissionForInactiveAgent_(){
+  const commLoading = document.getElementById('commLoading');
+  const commContent = document.getElementById('commContent');
+  
+  if (commLoading) commLoading.style.display = 'block';
+  if (commContent) commContent.style.display = 'none';
+  
+  const sid = getSession();
+  google.script.run.withSuccessHandler(res=>{
+    if (commLoading) commLoading.style.display = 'none';
+    if (commContent) {
+      commContent.style.display = 'block';
+      renderCommissionContent_(res);
+    }
+  }).pa_getDashboard(sid);
+}
+
+// 8. UPDATE checkForRoleChange_() to detect inactive status change
+// =================================================================
+// FIND THIS SECTION in checkForRoleChange_ (around line 273-307):
+
+function checkForRoleChange_(){
+  const sid = getSession();
+  if(!sid || document.getElementById('portalScreen').style.display === 'none') return;
+
+  google.script.run.withSuccessHandler(res=>{
+    if(!res.valid){
+      // Session was revoked/expired
+      doLogout();
+      return;
+    }
+    const roleChanged = String(res.role||'') !== String(CURRENT_ROLE||'');
+    const nameChanged = String(res.displayName||'') !== String(CURRENT_DISPLAY_NAME||'');
+    // ADDED: Check for active status change
+    const activeChanged = (res.isActive !== false) !== CURRENT_IS_ACTIVE;
+    
+    if(!roleChanged && !nameChanged && !activeChanged) return;
+
+    CURRENT_ROLE = res.role || '';
+    CURRENT_DISPLAY_NAME = res.displayName || '';
+    CURRENT_IS_ACTIVE = res.isActive !== false; // ADDED: update active status
+
+    clearAllPortalCaches_();
+
+    document.getElementById('pUserName').innerHTML = CURRENT_DISPLAY_NAME + '<span>'+(CURRENT_ROLE||'Agent')+'</span>';
+    
+    // ADDED: Update inactive banner
+    if (!CURRENT_IS_ACTIVE) {
+      showInactiveAgentBanner_();
+    } else {
+      const banner = document.getElementById('inactiveAgentBanner');
+      if (banner) banner.style.display = 'none';
+    }
+    
+    const isAdmin = String(CURRENT_ROLE||'').trim().toUpperCase() === 'ADMIN';
+    document.getElementById('navAdminBtn').style.display = isAdmin ? '' : 'none';
+
+    const activeView = document.querySelector('.p-view.active');
+    const activeViewId = activeView ? activeView.id.replace('view-','') : 'dashboard';
+    if(activeViewId === 'admin' && !isAdmin){
+      navTo('dashboard');
+    } else {
+      navTo(activeViewId);
+    }
+    
+    // ADDED: Only prefetch if active
+    if (CURRENT_IS_ACTIVE) {
+      runBackgroundDataPrefetch(sid);
+    }
+  }).withFailureHandler(()=>{}).pa_validateSession(sid);
+}
+
+// 9. UPDATE commShowDownloadOptions() to restrict for inactive agents
+// ====================================================================
+// FIND THE commShowDownloadOptions() FUNCTION and wrap it:
+
+function commShowDownloadOptions(){
+  // ADDED: Inactive agents only see PDF option, but can still download
+  const popup = document.getElementById('commDownloadPopup');
+  
+  if (!CURRENT_IS_ACTIVE) {
+    // For inactive agents, just trigger PDF download directly
+    commDownloadPDF(false); // false = no breakdown
+    return;
+  }
+  
+  // Normal behavior for active agents
+  if (popup) {
+    popup.style.display = popup.style.display === 'block' ? 'none' : 'block';
+  }
+}
+
+// 10. ADD THIS HTML BANNER to Portal.html (in the <body> section)
+// ================================================================
+// Add this before the <div id="authScreen"> element:
+
+/*
+<div id="inactiveAgentBanner" style="display:none; 
+  background-color: #fff3cd; 
+  border: 1px solid #ffeaa7; 
+  padding: 15px 20px; 
+  margin: 10px; 
+  border-radius: 4px; 
+  text-align: center; 
+  color: #856404;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;">
+  <span style="font-weight: 600;">⚠️ Your account is inactive.</span>
+  <span>You can download your commission record as PDF below.</span>
+</div>
+*/
+
+// 11. ADD CSS STYLING to Portal_CSS.html
+// =======================================
+// Add this to the <style> section:
+
+/*
+#inactiveAgentBanner {
+  display: flex;
+  background-color: #fff3cd;
+  border: 1px solid #ffeaa7;
+  padding: 15px 20px;
+  margin: 10px;
+  border-radius: 4px;
+  color: #856404;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+#inactiveAgentBanner span:first-child {
+  font-weight: 600;
+}
+
+/* Hide dashboard report card for inactive agents */
+#view-dashboard.inactive-view #rcReportCard {
+  display: none;
+}
+
+#view-dashboard.inactive-view #rcCommissionSection {
+  margin-top: 0;
+}
+*/
